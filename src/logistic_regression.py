@@ -80,6 +80,7 @@ def main():
     parser = argparse.ArgumentParser(description='Train a logistic regression classifier on the midjourney dataset')
     parser.add_argument('--real', type=str, default="", help='path to real images')
     parser.add_argument('--fake', type=str, default="", help='path to fake images')
+    parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
     args = parser.parse_args()
 
     BATCH_SIZE = 32
@@ -110,7 +111,7 @@ def main():
     # train and test
     f1_train_lst, f1_test_lst = [], []
     accuracy_train_lst, accuracy_test_lst = [], []
-    for epoch in range(10):
+    for epoch in range(args.epochs):
         print(f'Epoch {epoch}')
         train(model, train_loader, optimizer, criterion, device)
         print("________")
@@ -126,8 +127,8 @@ def main():
 
     # use plotly to plot the f1 scores vs epochs
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=list(range(10)), y=f1_train_lst, mode='lines+markers', name='Train F1 Score'))
-    fig.add_trace(go.Scatter(x=list(range(10)), y=f1_test_lst, mode='lines+markers', name='Test F1 Score'))
+    fig.add_trace(go.Scatter(x=list(range(args.epochs)), y=f1_train_lst, mode='lines+markers', name='Train F1 Score'))
+    fig.add_trace(go.Scatter(x=list(range(args.epochs)), y=f1_test_lst, mode='lines+markers', name='Test F1 Score'))
     fig.update_layout(title='F1 Score vs Epochs', xaxis_title='Epochs', yaxis_title='F1 Score')
     fig.show()
     # save the fig as a png
@@ -135,8 +136,8 @@ def main():
 
     # use plotly to plot the accuracy vs epochs
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=list(range(10)), y=accuracy_train_lst, mode='lines+markers', name='Train Accuracy'))
-    fig.add_trace(go.Scatter(x=list(range(10)), y=accuracy_test_lst, mode='lines+markers', name='Test Accuracy'))
+    fig.add_trace(go.Scatter(x=list(range(args.epochs)), y=accuracy_train_lst, mode='lines+markers', name='Train Accuracy'))
+    fig.add_trace(go.Scatter(x=list(range(args.epochs)), y=accuracy_test_lst, mode='lines+markers', name='Test Accuracy'))
     fig.update_layout(title='Accuracy vs Epochs', xaxis_title='Epochs', yaxis_title='Accuracy')
     fig.show()
     # save the fig as a png
