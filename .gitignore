@@ -1,7 +1,7 @@
 # dataset related files
 !datasets/midjourney/debug_dataset/milestone_subset.pt
 datasets/midjourney/debug_dataset/*
-datasets/midjourney/debug2
+datasets/midjourney/*
 midjourney_2022_reduced.csv
 
 
