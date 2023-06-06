@@ -14,27 +14,33 @@ import tarfile
 import glob
 import pandas as pd
 from PIL import Image
-from torchvision.transforms.functional import to_tensor
+import argparse
 
 
 def main():
-    create_and_save_dataset()
+    parser = argparse.ArgumentParser(description='Create a debug dataset from a csv, downloading each image, cropping it, filtering for correctly sized images, and then saving it as a tensor dataset.')
+    parser.add_argument('--dataset_name', type=str, default="debug_dataset", help='name of the dataset')
+    parser.add_argument('--n', type=int, default=20, help='number of images to sample from the dataset')
+    parser.add_argument('--data_csv', type=str, default="midjourney_2022_reduced.csv", help='name of the csv file')
+    parser.add_argument('--data_dir', type=str, default="midjourney", help='name of the data directory')
+    args = parser.parse_args()
+    create_and_save_dataset(dataset_name=args.dataset_name, number_to_sample=args.n, data_csv=args.data_csv, data_dir=args.data_dir)
 
 def create_and_save_dataset(dataset_name="debug_dataset", number_to_sample=20, data_csv="midjourney_2022_reduced.csv", data_dir="midjourney"):
     """
     Create a debug dataset from a csv, downloading each image, cropping it, filtering for correctly sized images, and then saving it as a tensor dataset.
+    Saves the dataset to data_dir/dataset_name/dataset_name.pt
     """
     # get the absolute path of the current directory
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    assert current_dir.endswith("datasets")
-    midjourney_data_dir = os.path.join(current_dir, data_dir)
+    midjourney_data_dir = os.path.join(current_dir, "..", "datasets", data_dir)
     output_dataset_dir = os.path.join(midjourney_data_dir, dataset_name)
     image_size = 512  # size of the images to be downloaded and cropped to
     number_to_sample = number_to_sample
 
     df = pd.read_csv(os.path.join(midjourney_data_dir, data_csv))
     np.random.seed(0)
-    sample_df = df.sample(n=20)
+    sample_df = df.sample(n=number_to_sample)
     print(len(sample_df))
 
     # Verify if things look right
@@ -48,7 +54,11 @@ def create_and_save_dataset(dataset_name="debug_dataset", number_to_sample=20, d
     for i in range(10):
         print(sample_df['img_url'].iloc[i])
 
-    sample_df.to_parquet(f'{output_dataset_dir}/seed_0_{dataset_name}.parquet')
+    sampled_df_path = f'{output_dataset_dir}/seed_0_{dataset_name}.parquet'
+    if not os.path.exists(sampled_df_path):
+        print("Saving sampled df")
+        os.makedirs(output_dataset_dir, exist_ok=True)
+        sample_df.to_parquet(sampled_df_path)
 
     # create the data directory if it doesn't exist
     disallowed_header_directives = (
