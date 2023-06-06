@@ -10,7 +10,6 @@ import os
 import img2dataset
 import numpy as np
 import torch
-# import subprocess
 import tarfile
 import glob
 import pandas as pd
@@ -19,64 +18,62 @@ from torchvision.transforms.functional import to_tensor
 
 
 def main():
-    DATASET_NAME = "debug_dataset"
+    create_and_save_dataset()
+
+def create_and_save_dataset(dataset_name="debug_dataset", number_to_sample=20, data_csv="midjourney_2022_reduced.csv", data_dir="midjourney"):
+    """
+    Create a debug dataset from a csv, downloading each image, cropping it, filtering for correctly sized images, and then saving it as a tensor dataset.
+    """
     # get the absolute path of the current directory
     current_dir = os.path.dirname(os.path.abspath(__file__))
     assert current_dir.endswith("datasets")
-    midjourney_data_dir = os.path.join(current_dir, "midjourney")
-    output_dataset_dir = os.path.join(midjourney_data_dir, DATASET_NAME)
+    midjourney_data_dir = os.path.join(current_dir, data_dir)
+    output_dataset_dir = os.path.join(midjourney_data_dir, dataset_name)
+    image_size = 512  # size of the images to be downloaded and cropped to
+    number_to_sample = number_to_sample
 
-    df = pd.read_csv(os.path.join(midjourney_data_dir, "midjourney_2022_reduced.csv"))
+    df = pd.read_csv(os.path.join(midjourney_data_dir, data_csv))
     np.random.seed(0)
-    df_150 = df.sample(n=20)
-    print(len(df_150))
+    sample_df = df.sample(n=20)
+    print(len(sample_df))
 
     # Verify if things look right
     # reformat the dataset to actually have urls
     # Define the prefix to append to each image URL
     prefix = "https://media.discordapp.net/attachments/"
     # Iterate over the rows of the dataframe and update the 'img_url' column
-    for index, row in df_150.iterrows():
-        df_150.at[index, 'img_url'] = f"{prefix}{row['img_url']}"
+    for index, row in sample_df.iterrows():
+        sample_df.at[index, 'img_url'] = f"{prefix}{row['img_url']}"
     # Print the first url to verify it's viewable
     for i in range(10):
-        print(df_150['img_url'].iloc[i])
+        print(sample_df['img_url'].iloc[i])
 
-    df_150.to_parquet(f'{output_dataset_dir}/seed_0_{DATASET_NAME}.parquet')
+    sample_df.to_parquet(f'{output_dataset_dir}/seed_0_{dataset_name}.parquet')
 
     # create the data directory if it doesn't exist
-    image_size = 512  # size of the imagess
-    resize_mode = "center_crop"
     disallowed_header_directives = (
         []
     )  # empty list means it ignores robot.txt and downloads anyway
     # download_command = f"img2dataset --url_list {midjourney_data_dir} --input_format 'parquet'--url_col 'img_url' --caption_col 'text' --output_format webdataset   --output_folder {midjourney_data_dir} --processes_count 8 --thread_count 64 --image_size {image_size} --resize_only_if_bigger=True --resize_mode={resize_mode} --skip_reencode=True --disallowed_header_directives {disallowed_header_directives}"
-    input_format = 'parquet'
-    url_col = 'img_url'
-    caption_col = 'text'
-    output_format = 'webdataset'
-    processes_count = 8
-    thread_count = 64
-    resize_only_if_bigger = True
-    skip_reencode = True
 
     # Call the download function
     # fails if the files have already been downloaded, so we check if they exist first
+    # first file is always 00000.parquet that it downloads. Don't check 
     if not os.path.exists(os.path.join(output_dataset_dir, "00000.parquet")):
         print("Downloading dataset")
         img2dataset.download(
             url_list=output_dataset_dir,
-            input_format=input_format,
-            url_col=url_col,
-            caption_col=caption_col,
-            output_format=output_format,
+            input_format='parquet',
+            url_col='img_url',
+            caption_col='text',
+            output_format='webdataset',
             output_folder=output_dataset_dir,
-            processes_count=processes_count,
-            thread_count=thread_count,
+            processes_count=8,
+            thread_count=64,
             image_size=image_size,
-            resize_only_if_bigger=resize_only_if_bigger,
-            resize_mode=resize_mode,
-            skip_reencode=skip_reencode,
+            resize_only_if_bigger=True,
+            resize_mode="center_crop",
+            skip_reencode=True,
             disallowed_header_directives=disallowed_header_directives
         )
 
@@ -99,7 +96,7 @@ def main():
             with tarfile.open(tar_file, "r") as tar:
                 tar.extractall(output_dataset_dir)
 
-    tensor_dataset_path = os.path.join(output_dataset_dir, 'milestone_subset.pt')
+    tensor_dataset_path = os.path.join(output_dataset_dir, f'{dataset_name}.pt')
     if not os.path.exists(tensor_dataset_path):
         print("Creating tensor dataset")
         cleaned_images = clean_dataset(output_dataset_dir, image_size)
@@ -160,7 +157,6 @@ def stack_dataset(cleaned_images, target_size: int = 512):
     stacked_img = torch.stack(img_dataset)
     print(stacked_img.shape)
     return stacked_img
-
 
 
 if __name__ == "__main__":

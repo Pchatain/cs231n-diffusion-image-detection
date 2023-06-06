@@ -1,5 +1,7 @@
 # dataset related files
-datasets/midjourney/*
+!datasets/midjourney/debug_dataset/milestone_subset.pt
+datasets/midjourney/debug_dataset/*
+midjourney_2022_reduced.csv
 
 
 # Byte-compiled / optimized / DLL files
