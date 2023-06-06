@@ -1,3 +1,7 @@
+# dataset related files
+datasets/midjourney/*
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
