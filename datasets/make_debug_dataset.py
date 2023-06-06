@@ -1,10 +1,19 @@
 """
 This is a script for creating a debug dataset of 20 fake images and 20 real images.
+
+To download the midjourney dataset, run the following command:
+
 """
 
 import pandas as pd
 import os
+import img2dataset
+import numpy as np
 import torch
+import subprocess
+import tarfile
+import pandas as pd
+from PIL import Image
 from torchvision.transforms.functional import to_tensor
 
 
@@ -19,10 +28,9 @@ def main():
     disallowed_header_directives = (
         []
     )  # empty list means it ignores robot.txt and downloads anyway
-    download_command = f"img2dataset --url_list {midjourney_data_dir} --input_format 'parquet'--url_col 'img_url' --caption_col 'text' --output_format webdataset   --output_folder {midjourney_data_dir} --processes_count 8 --thread_count 64 --image_size {image_size} --resize_only_if_bigger=True --resize_mode={resize_mode} --skip_reencode=True --disallowed_header_directives {disallowed_header_directives}"
+    # download_command = f"img2dataset --url_list {midjourney_data_dir} --input_format 'parquet'--url_col 'img_url' --caption_col 'text' --output_format webdataset   --output_folder {midjourney_data_dir} --processes_count 8 --thread_count 64 --image_size {image_size} --resize_only_if_bigger=True --resize_mode={resize_mode} --skip_reencode=True --disallowed_header_directives {disallowed_header_directives}"
 
-    # TODO: download midjourney dataset to the cluster
-    # TODO: Download the df = pd.read_csv("datasets/midjourney/midjourney_2022_reduced.csv")
+    df = pd.read_csv(os.path.join(midjourney_data_dir, "midjourney_2022_reduced.csv"))
     np.random.seed(0)
     df_150 = df.sample(n=20)
     print(len(df_150))
@@ -36,27 +44,71 @@ def main():
         df_150.at[index, 'img_url'] = f"{prefix}{row['img_url']}"
     # Print the first url to verify it's viewable
     for i in range(10):
-    print(df_150['img_url'].iloc[i])
+        print(df_150['img_url'].iloc[i])
 
     # TODO save this to a new location
-    df_150.to_parquet(f'./datasets/midjourney/{data_dir}/seed_0.parquet')
+    df_150.to_parquet(f'{midjourney_data_dir}/seed_0_debug.parquet')
 
     # TODO: run the img2dataset command wiht options at the top
+    # subprocess.run(download_command, check=True)
+    # Define the arguments
+    url_list = midjourney_data_dir
+    input_format = 'parquet'
+    url_col = 'img_url'
+    caption_col = 'text'
+    output_format = 'webdataset'
+    output_folder = midjourney_data_dir
+    processes_count = 8
+    thread_count = 64
+    image_size = image_size
+    resize_only_if_bigger = True
+    resize_mode = resize_mode
+    skip_reencode = True
+    disallowed_header_directives = disallowed_header_directives
+
+    # Call the download function
+    img2dataset.download(
+        url_list=url_list,
+        input_format=input_format,
+        url_col=url_col,
+        caption_col=caption_col,
+        output_format=output_format,
+        output_folder=output_folder,
+        processes_count=processes_count,
+        thread_count=thread_count,
+        image_size=image_size,
+        resize_only_if_bigger=resize_only_if_bigger,
+        resize_mode=resize_mode,
+        skip_reencode=skip_reencode,
+        disallowed_header_directives=disallowed_header_directives
+    )
+
 
     # TODO: read the file to verify things downloaded correctly
-    # output_df = pd.read_parquet("datasets/midjourney/3k_subset_output/00000.parquet")
+    output_df = pd.read_parquet(os.path.join(midjourney_data_dir, "00000.parquet"))
 
-    #     for i in range(len(output_df)):
-    # if i > 15:
-    #     break
-    # print(output_df["url"].iloc[i])
+    for i in range(len(output_df)):
+        if i > 15:
+            break
+        print(output_df["url"].iloc[i])
 
-def clean_dataset():
+    # get all files ending in .tar
+    tar_files = [f for f in os.listdir(midjourney_data_dir) if f.endswith(".tar")]
+    print(tar_files)
+    # extract all files
+    for tar_file in tar_files:
+        with tarfile.open(tar_file, "r") as tar:
+            tar.extractall(midjourney_data_dir)
+    
+    cleaned_images = clean_dataset(os.path.join(midjourney_data_dir, ""))
+
+def clean_dataset(directory: str):
     """
     This removes any images of the wrong size:
     """
     # Loop through each file in the directory
-    directory = "./datasets/midjourney/3k_subset_output/unziped"
+    # directory = "./datasets/midjourney/3k_subset_output/unziped"
+    print(f"Looking for files in {directory}")
 
     n_of_size_1024 = 0
     n_of_size_512 = 0
@@ -77,13 +129,13 @@ def clean_dataset():
             # Process the image tensor as needed
             x, y, c = image_tensor.shape
             if x > 1024 or y > 1024:
-            print("this shouldn't happen, image too big")
+                print("this shouldn't happen, image too big")
             elif x == 1024 and y == 1024:
-            n_of_size_1024 += 1
-            n_of_size_512 += 1
-            midjourney_dataset.append(image_tensor)
+                n_of_size_1024 += 1
+                n_of_size_512 += 1
+                midjourney_dataset.append(image_tensor)
             elif x >= 512 and y >= 512:
-            n_of_size_512 += 1
+                n_of_size_512 += 1
             total += 1
 
             # # Print the shape of the tensor
@@ -91,23 +143,24 @@ def clean_dataset():
     print(f"n 1024: {n_of_size_1024}")
     print(n_of_size_512)
     print(total)
+    return midjourney_dataset
 
 
-def save_to_folder():
-    img_dataset = []
+# def save_to_folder():
+#     img_dataset = []
 
-    for i in range(100):
-    # row = df.iloc[i]
-    # img_url = f"https://cdn.discordapp.com/attachments/{row.img_url}"
-    # response = requests.get(img_url_1, stream=True)
-    # img = Image.open(response.raw)
-    img_tensor = to_tensor(img)
-    img_dataset.append(img_tensor)
-    if img_tensor.shape != torch.Size([3, 1664, 1664]):
-        print(f"img actually has shape {img_tensor.shape}")
-    stacked_img = torch.stack(midjourney_dataset)
-    print(stacked_img.shape)
-    torch.save(stacked_img, "datasets/midjourney/milestone_subset.pt") 
+#     for i in range(100):
+#     # row = df.iloc[i]
+#     # img_url = f"https://cdn.discordapp.com/attachments/{row.img_url}"
+#     # response = requests.get(img_url_1, stream=True)
+#     # img = Image.open(response.raw)
+#     img_tensor = to_tensor(img)
+#     img_dataset.append(img_tensor)
+#     if img_tensor.shape != torch.Size([3, 1664, 1664]):
+#         print(f"img actually has shape {img_tensor.shape}")
+#     stacked_img = torch.stack(midjourney_dataset)
+#     print(stacked_img.shape)
+#     torch.save(stacked_img, "datasets/midjourney/milestone_subset.pt") 
 
 
 
