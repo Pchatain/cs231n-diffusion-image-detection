@@ -8,6 +8,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 
+import argparse
+
 from data import load_training_dataset
 
 class LogisticRegression(nn.Module):
@@ -57,19 +59,25 @@ def main():
     """
     By default trains a logistic regression classifier on the debug dataset
     """
+    parser = argparse.ArgumentParser(description='Train a logistic regression classifier on the midjourney dataset')
+    parser.add_argument('--real', type=str, default="", help='path to real images')
+    parser.add_argument('--fake', type=str, default="", help='path to fake images')
+    args = parser.parse_args()
+
     BATCH_SIZE = 32
-    images, labels = load_training_dataset()
+    images, labels = load_training_dataset(real_imgs_path=args.real, fake_imgs_path=args.fake)
     print(f'Loaded dataset of size {len(images)}')
 
     # split into train and test
     train_size = int(0.8 * len(images))
     test_size = len(images) - train_size
-    train_images, test_images = torch.utils.data.random_split(images, [train_size, test_size])
-    train_labels, test_labels = torch.utils.data.random_split(labels, [train_size, test_size])
+    full_dataset = torch.utils.data.TensorDataset(images, labels)
+    train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [train_size, test_size])
+
 
     # create dataloaders
-    train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(train_images.dataset, train_labels.dataset), batch_size=BATCH_SIZE, shuffle=True)
-    test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(test_images.dataset, test_labels.dataset), batch_size=BATCH_SIZE, shuffle=True)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     # create model
     model = LogisticRegression()
@@ -86,6 +94,8 @@ def main():
         print(f'Epoch {epoch}')
         train(model, train_loader, optimizer, criterion, device)
         test(model, test_loader, criterion, device)
+    print(f"Now testing on the train set")
+    test(model, train_loader, criterion, device)
     
     # save model
     torch.save(model.state_dict(), 'logistic_regression.pt')
