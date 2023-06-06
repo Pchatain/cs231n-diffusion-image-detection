@@ -6,9 +6,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import numpy as np
+from sklearn.metrics import f1_score
 
 import argparse
+import plotly.graph_objects as go
 
 from data import load_training_dataset
 
@@ -38,11 +39,19 @@ def train(model, train_loader, optimizer, criterion, device):
         
         if batch_idx % 10 == 0:
             print(f'Batch {batch_idx} Loss {loss.item()}')
+        
 
 def test(model, test_loader, criterion, device):
+    """
+    Get's the F1 score of the model, as well as the accuracy.
+    Returns the F1 score and the accuracy
+    """
     model.eval()
     test_loss = 0
     correct = 0
+    all_preds = []
+    all_targets = []
+
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
@@ -51,9 +60,18 @@ def test(model, test_loader, criterion, device):
             test_loss += criterion(output, target.unsqueeze(1).float()).item()
             pred = torch.round(torch.sigmoid(output))
             correct += pred.eq(target.view_as(pred)).sum().item()
+
+            all_preds.extend(pred.view(-1).tolist())
+            all_targets.extend(target.view(-1).tolist())
             
     test_loss /= len(test_loader.dataset)
-    print(f'Test set: Average loss: {test_loss}, Accuracy: {correct}/{len(test_loader.dataset)} ({100. * correct / len(test_loader.dataset)}%)')
+    accuracy = 100. * correct / len(test_loader.dataset)
+    f1 = f1_score(all_targets, all_preds)
+
+    print(f'Test set: Average loss: {test_loss}, Accuracy: {correct}/{len(test_loader.dataset)} ({accuracy}%), F1 Score: {f1}')
+
+    return f1, accuracy
+
 
 def main():
     """
@@ -90,12 +108,40 @@ def main():
     criterion = nn.BCEWithLogitsLoss()
 
     # train and test
+    f1_train_lst, f1_test_lst = [], []
+    accuracy_train_lst, accuracy_test_lst = [], []
     for epoch in range(10):
         print(f'Epoch {epoch}')
         train(model, train_loader, optimizer, criterion, device)
-        test(model, test_loader, criterion, device)
-    print(f"Now testing on the train set")
-    test(model, train_loader, criterion, device)
+        print("________")
+        f1_train, accuracy_train = test(model, train_loader, criterion, device)
+        print("________")
+        f1_test, accuracy_test = test(model, test_loader, criterion, device)
+        print("___________________________")
+        f1_train_lst.append(f1_train)
+        f1_test_lst.append(f1_test)
+        accuracy_train_lst.append(accuracy_train)
+        accuracy_test_lst.append(accuracy_test)
+    
+
+    # use plotly to plot the f1 scores vs epochs
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=list(range(10)), y=f1_train_lst, mode='lines+markers', name='Train F1 Score'))
+    fig.add_trace(go.Scatter(x=list(range(10)), y=f1_test_lst, mode='lines+markers', name='Test F1 Score'))
+    fig.update_layout(title='F1 Score vs Epochs', xaxis_title='Epochs', yaxis_title='F1 Score')
+    fig.show()
+    # save the fig as a png
+    fig.write_image("logistic_regression_f1.png")
+
+    # use plotly to plot the accuracy vs epochs
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=list(range(10)), y=accuracy_train_lst, mode='lines+markers', name='Train Accuracy'))
+    fig.add_trace(go.Scatter(x=list(range(10)), y=accuracy_test_lst, mode='lines+markers', name='Test Accuracy'))
+    fig.update_layout(title='Accuracy vs Epochs', xaxis_title='Epochs', yaxis_title='Accuracy')
+    fig.show()
+    # save the fig as a png
+    fig.write_image("logistic_regression_accuracy.png")
+
     
     # save model
     torch.save(model.state_dict(), 'logistic_regression.pt')
