@@ -15,13 +15,14 @@ import numpy as np
 
 import time
 from tempfile import TemporaryDirectory
-import argparse
 import os
 import matplotlib.pyplot as plt
 import torchvision
 from torchvision import datasets, models, transforms
 
 from data import load_training_dataset
+
+from utils import get_training_args
 
 
 class Trainer():
@@ -136,7 +137,7 @@ class Trainer():
 
             # load best model weights
             model.load_state_dict(torch.load(best_model_params_path))
-        return model
+        self.model_ft = model
 
     def imshow(self, inp, title=None):
         """Display image for Tensor."""
@@ -189,15 +190,12 @@ class Trainer():
         Trains a pretrained resnet
         Resets the last layer to be a linear layer with one output
         """
-        if device == "":
-            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
         num_ftrs = self.model_ft.fc.in_features
         # Here the size of each output sample is set to 2.
         # Alternatively, it can be generalized to ``nn.Linear(num_ftrs, len(class_names))``.
         self.model_ft.fc = nn.Linear(num_ftrs, 2)
 
-        self.model_ft = self.model_ft.to(device)
+        self.model_ft = self.model_ft.to(self.device)
 
         criterion = nn.CrossEntropyLoss()
 
@@ -207,35 +205,30 @@ class Trainer():
         # Decay LR by a factor of 0.1 every 7 epochs
         exp_lr_scheduler = lr_scheduler.StepLR(optimizer_ft, step_size=7, gamma=0.1)
 
-        self.model_ft = self._train_model(self.model_ft, criterion, optimizer_ft, exp_lr_scheduler,
+        self._train_model(self.model_ft, criterion, optimizer_ft, exp_lr_scheduler,
                         num_epochs=25)
 
-        self.visualize_model(self.model_ft, device=device)
+        self.visualize_model(self.model_ft)
 
 
 def main():
-    print("hi")
-    parser = argparse.ArgumentParser(description='Train a logistic regression classifier on the midjourney dataset')
-    parser.add_argument('--real', type=str, default="", help='path to real images')
-    parser.add_argument('--fake', type=str, default="", help='path to fake images')
-    parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
-    args = parser.parse_args()
+    args = get_training_args()
 
     BATCH_SIZE = 32
     images, labels = load_training_dataset(real_imgs_path=args.real, fake_imgs_path=args.fake)
     print(f'Loaded dataset of size {len(images)}')
 
-    # split into train and test
+    # split into train and val
     train_size = int(0.8 * len(images))
-    test_size = len(images) - train_size
+    val_size = len(images) - train_size
     full_dataset = torch.utils.data.TensorDataset(images, labels)
-    train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [train_size, test_size])
+    train_dataset, val_dataset = torch.utils.data.random_split(full_dataset, [train_size, val_size])
 
 
     # create dataloaders
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    dataloaders = {'train': train_loader, 'val': test_loader}
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    dataloaders = {'train': train_loader, 'val': val_loader}
 
     # instantiate model
     model_ft = models.resnet18(weights='IMAGENET1K_V1')
