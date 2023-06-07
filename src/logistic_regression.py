@@ -12,6 +12,7 @@ import argparse
 import plotly.graph_objects as go
 
 from data import load_training_dataset
+from utils import get_training_args
 
 class LogisticRegression(nn.Module):
     def __init__(self):
@@ -77,11 +78,7 @@ def main():
     """
     By default trains a logistic regression classifier on the debug dataset
     """
-    parser = argparse.ArgumentParser(description='Train a logistic regression classifier on the midjourney dataset')
-    parser.add_argument('--real', type=str, default="", help='path to real images')
-    parser.add_argument('--fake', type=str, default="", help='path to fake images')
-    parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
-    args = parser.parse_args()
+    args = get_training_args()
 
     BATCH_SIZE = 32
     images, labels = load_training_dataset(real_imgs_path=args.real, fake_imgs_path=args.fake)

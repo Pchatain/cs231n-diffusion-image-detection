@@ -23,7 +23,7 @@ def load_training_dataset(real_imgs_path="", fake_imgs_path="", balance_datasets
     fake_images = torch.load(fake_dataset_path)
 
     if real_imgs_path == "":
-        real_imgs_path = "laion-art-debug/real_47"
+        real_imgs_path = "laion-art/real_47"
     real_dataset_path = os.path.join(current_dir, f'../datasets/{real_imgs_path}.npy')
     real_images = np.load(real_dataset_path)
     real_images = torch.from_numpy(real_images)
@@ -51,6 +51,6 @@ if __name__ == "__main__":
     # print(f"shape of example 0 is {dataset[0].shape}")
     # print("...............................")
     # print("loading dataset real")
-    # dataset = load_real_dataset(data_path="laion-art-debug/real_658.npy")
+    # dataset = load_real_dataset(data_path="laion-art/real_658.npy")
     # print(f'Loaded dataset of size {len(dataset)}')
     # print(f"shape of example 0 is {dataset[0].shape}")
