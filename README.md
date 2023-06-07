@@ -4,5 +4,6 @@ Classification of Real and Diffusion Model-generated Images
 ## Setup
 Create the conda environment with the following command:
 ```
-conda env create -f environment.yml
+conda activate cs231n
+pip install -r requirements.txt
 ```
