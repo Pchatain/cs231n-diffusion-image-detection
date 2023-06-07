@@ -19,10 +19,13 @@ import os
 import matplotlib.pyplot as plt
 import torchvision
 from torchvision import datasets, models, transforms
+import wandb
 
 from data import load_training_dataset
 
 from utils import get_training_args
+
+WANDB_PROJECT_NAME = "cs231n"
 
 
 class Trainer():
@@ -48,11 +51,6 @@ class Trainer():
         #         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         #     ]),
         # }
-
-        # dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=4,
-        #                                             shuffle=True, num_workers=4)
-        #             for x in ['train', 'val']}
-        self.dataset_sizes = {x: len(dataloaders[x]) for x in ['train', 'val']}
         self.class_names = ["real", "fake"]
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -84,6 +82,7 @@ class Trainer():
                 print('-' * 10)
 
                 # Each epoch has a training and validation phase
+                log_dict = {}
                 for phase in ['train', 'val']:
                     if phase == 'train':
                         model.train()  # Set model to training mode
@@ -91,7 +90,10 @@ class Trainer():
                         model.eval()   # Set model to evaluate mode
 
                     running_loss = 0.0
-                    running_corrects = 0
+                    # running_corrects = 0
+                    all_preds = []
+                    all_labels = []
+                    running_total_size = 0
 
                     # Iterate over data.
                     for inputs, labels in self.dataloaders[phase]:
@@ -116,14 +118,25 @@ class Trainer():
 
                         # statistics
                         running_loss += loss.item() * inputs.size(0)
-                        running_corrects += torch.sum(preds == labels.data)
+                        # running_corrects += torch.sum(preds == labels.data)
+                        # add to all preds and labels on cpu
+                        all_preds += preds.cpu().numpy().tolist()
+                        all_labels += labels.cpu().numpy().tolist()
+                        
+                        running_total_size += len(labels)
                     if phase == 'train':
                         scheduler.step()
 
-                    epoch_loss = running_loss / self.dataset_sizes[phase]
-                    epoch_acc = running_corrects.double() / self.dataset_sizes[phase]
+                    epoch_loss = running_loss / running_total_size
+                    epoch_acc = torch.mean((torch.tensor(all_preds) == torch.tensor(all_labels)).float())
+                    epoch_f1 = f1_score(all_labels, all_preds, average='macro')
 
-                    print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
+                    print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f} F1: {epoch_f1:.4f}')
+                    
+                    log_dict[f'{phase}_loss'] = epoch_loss
+                    log_dict[f'{phase}_acc'] = epoch_acc
+                    log_dict[f'{phase}_f1'] = epoch_f1
+                    
 
                     # deep copy the model
                     if phase == 'val' and epoch_acc > best_acc:
@@ -131,6 +144,7 @@ class Trainer():
                         torch.save(model.state_dict(), best_model_params_path)
 
                 print()
+                wandb.log(log_dict)
 
             time_elapsed = time.time() - since
             print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
@@ -209,7 +223,7 @@ class Trainer():
         self._train_model(self.model_ft, criterion, optimizer_ft, exp_lr_scheduler,
                         num_epochs=epochs)
 
-        self.visualize_model()
+        # self.visualize_model()
 
 
 def main():
@@ -218,6 +232,16 @@ def main():
     BATCH_SIZE = 32
     images, labels = load_training_dataset(real_imgs_path=args.real, fake_imgs_path=args.fake)
     print(f'Loaded dataset of size {len(images)}')
+
+    # Initialize Weights and Biases run
+    run = wandb.init(
+        # entity=WANDB_ENTITY_NAME,
+        project=WANDB_PROJECT_NAME,
+        notes=args.notes,
+        save_code=True,
+        config=args,
+    )
+    assert run is not None
 
     # split into train and val
     train_size = int(0.8 * len(images))

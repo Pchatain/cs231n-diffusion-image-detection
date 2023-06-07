@@ -13,5 +13,6 @@ def get_training_args():
     parser.add_argument('--real', type=str, default="laion-art/real_658", help='path to real images')
     parser.add_argument('--fake', type=str, default="full_660", help='path to fake images')
     parser.add_argument('--epochs', type=int, default=30, help='number of epochs to train for')
+    parser.add_argument('--notes', type=str, default="", help='notes for the run')
     args = parser.parse_args()
     return args
