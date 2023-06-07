@@ -6,11 +6,13 @@ import os
 import glob
 import numpy as np
 import torch
+import einops
 
 
 def load_training_dataset(real_imgs_path="", fake_imgs_path="", balance_datasets=True):
     """
-    Given real_imgs and fake_imgs returns a dataset of shape (n_images, 512, 512, 3) and labels of shape (n_images,)
+    Given real_imgs and fake_imgs returns a dataset of shape (n_images, 3, 512, 512) and labels of shape (n_images,)
+    Reshapes the images from HWC to CHW
 
     If empty strings, uses the debug datasets.
 
@@ -35,7 +37,10 @@ def load_training_dataset(real_imgs_path="", fake_imgs_path="", balance_datasets
     else:
         fake_labels = torch.zeros(len(fake_images))
     images = torch.cat((real_images, fake_images))
-    labels = torch.cat((real_labels, fake_labels))
+    images = einops.rearrange(images, 'b h w c -> b c h w')
+    # change datatype to FloatTensor
+    images = images.type(torch.FloatTensor)
+    labels = torch.cat((real_labels, fake_labels)).type(torch.long)
     return images, labels
 
 

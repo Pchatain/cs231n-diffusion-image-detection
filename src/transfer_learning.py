@@ -106,6 +106,7 @@ class Trainer():
                         with torch.set_grad_enabled(phase == 'train'):
                             outputs = model(inputs)
                             _, preds = torch.max(outputs, 1)
+                            labels = labels.type(torch.long)
                             loss = criterion(outputs, labels)
 
                             # backward + optimize only if in training phase
