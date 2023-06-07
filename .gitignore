@@ -4,6 +4,12 @@ datasets/midjourney/debug_dataset/*
 datasets/midjourney/*
 midjourney_2022_reduced.csv
 
+# vscode
+!.vscode/launch.json
+
+#wandb
+wandb
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
