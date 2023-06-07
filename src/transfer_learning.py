@@ -106,6 +106,7 @@ class Trainer():
                         with torch.set_grad_enabled(phase == 'train'):
                             outputs = model(inputs)
                             _, preds = torch.max(outputs, 1)
+                            labels = labels.type(torch.long)
                             loss = criterion(outputs, labels)
 
                             # backward + optimize only if in training phase
@@ -185,7 +186,7 @@ class Trainer():
             model.train(mode=was_training)
 
 
-    def train_pretrained_model(self):
+    def train_pretrained_model(self, epochs=25):
         """
         Trains a pretrained resnet
         Resets the last layer to be a linear layer with one output
@@ -206,9 +207,9 @@ class Trainer():
         exp_lr_scheduler = lr_scheduler.StepLR(optimizer_ft, step_size=7, gamma=0.1)
 
         self._train_model(self.model_ft, criterion, optimizer_ft, exp_lr_scheduler,
-                        num_epochs=25)
+                        num_epochs=epochs)
 
-        self.visualize_model(self.model_ft)
+        self.visualize_model()
 
 
 def main():
@@ -233,7 +234,7 @@ def main():
     # instantiate model
     model_ft = models.resnet18(weights='IMAGENET1K_V1')
     trainer = Trainer(model_ft, dataloaders)
-    model_ft = trainer.train_pretrained_model()
+    model_ft = trainer.train_pretrained_model(args.epochs)
 
 
 if __name__ == '__main__':

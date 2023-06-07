@@ -5,3 +5,5 @@ black
 numpy
 plotly
 kaleido
+matplotlib
+einops
