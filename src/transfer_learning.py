@@ -203,7 +203,8 @@ class Trainer():
     def train_pretrained_model(self, epochs=25):
         """
         Trains a pretrained resnet
-        Resets the last layer to be a linear layer with one output
+        Resets the last layer to be a linear layer with 2 outputs, the logitts for real class
+        and the logits for fake class
         """
         num_ftrs = self.model_ft.fc.in_features
         # Here the size of each output sample is set to 2.
