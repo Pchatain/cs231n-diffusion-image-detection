@@ -345,35 +345,40 @@ def main(args):
     full_dataset = torch.utils.data.TensorDataset(images, labels)
     best_acc = 0.0
     best_f1 = 0.0
-    if args.kfold > 0:
-        tqdm.write(f"Using train and validation split for cross validation. frac: {train_frac + val_frac}")
-        train_dataset, test_dataset = torch.utils.data.random_split(
-            full_dataset, [train_size + val_size, test_size]
-        )
-        best_model, best_acc, best_f1 = run_cross_validation(args, train_dataset)
-        tqdm.write(f"Final Best accuracy: {best_acc}, best f1: {best_f1}")
+    try: # catches cudaOOM
+        if args.kfold > 0:
+            tqdm.write(f"Using train and validation split for cross validation. frac: {train_frac + val_frac}")
+            train_dataset, test_dataset = torch.utils.data.random_split(
+                full_dataset, [train_size + val_size, test_size]
+            )
+            best_model, best_acc, best_f1 = run_cross_validation(args, train_dataset)
+            tqdm.write(f"Final Best accuracy: {best_acc}, best f1: {best_f1}")
 
-    else:
-        tqdm.write("Doing normal training with train, val, and test splits.")
-        train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
-            full_dataset, [train_size, val_size, test_size]
-        )
+        else:
+            tqdm.write("Doing normal training with train, val, and test splits.")
+            train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
+                full_dataset, [train_size, val_size, test_size]
+            )
 
-        # create dataloaders
-        train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=args.batch_size, shuffle=True
-        )
-        val_loader = torch.utils.data.DataLoader(
-            val_dataset, batch_size=args.batch_size, shuffle=True
-        )
-        test_loader = torch.utils.data.DataLoader(
-            test_dataset, batch_size=args.batch_size, shuffle=True
-        )
-        dataloaders = {"train": train_loader, "val": val_loader, "test": test_loader}
+            # create dataloaders
+            train_loader = torch.utils.data.DataLoader(
+                train_dataset, batch_size=args.batch_size, shuffle=True
+            )
+            val_loader = torch.utils.data.DataLoader(
+                val_dataset, batch_size=args.batch_size, shuffle=True
+            )
+            test_loader = torch.utils.data.DataLoader(
+                test_dataset, batch_size=args.batch_size, shuffle=True
+            )
+            dataloaders = {"train": train_loader, "val": val_loader, "test": test_loader}
 
-        model_ft = instantiate_model(args)
-        trainer = Trainer(model_ft, dataloaders, args)
-        best_acc, best_f1 = trainer.train_model(args.epochs)
+            model_ft = instantiate_model(args)
+            trainer = Trainer(model_ft, dataloaders, args)
+            best_acc, best_f1 = trainer.train_model(args.epochs)
+    except RuntimeError as exc:
+        print(f"RuntimeError: {exc}")
+        wandb.log({"RuntimeError": str(exc)})
+        wandb.log({"final_best_acc": -1, "final_best_f1": -1})
 
     wandb.log({"final_best_acc": best_acc, "final_best_f1": best_f1})
 
