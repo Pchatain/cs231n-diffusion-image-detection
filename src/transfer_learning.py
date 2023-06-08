@@ -206,10 +206,12 @@ class Trainer():
         Resets the last layer to be a linear layer with 2 outputs, the logitts for real class
         and the logits for fake class
         """
-        num_ftrs = self.model_ft.fc.in_features
+        num_ftrs = self.model_ft.classifier[-1].in_features
+        self.model_ft.classifier[-1] = nn.Linear(num_ftrs, 2)
+        #num_ftrs = self.model_ft.fc.in_features
         # Here the size of each output sample is set to 2.
         # Alternatively, it can be generalized to ``nn.Linear(num_ftrs, len(class_names))``.
-        self.model_ft.fc = nn.Linear(num_ftrs, 2)
+        #self.model_ft.fc = nn.Linear(num_ftrs, 2)
 
         self.model_ft = self.model_ft.to(self.device)
 
@@ -230,7 +232,7 @@ class Trainer():
 def main():
     args = get_training_args()
 
-    BATCH_SIZE = 32
+    BATCH_SIZE = 16
     images, labels = load_training_dataset(real_imgs_path=args.real, fake_imgs_path=args.fake)
     print(f'Loaded dataset of size {len(images)}')
 
@@ -257,7 +259,7 @@ def main():
     dataloaders = {'train': train_loader, 'val': val_loader}
 
     # instantiate model
-    model_ft = models.resnet18(weights='IMAGENET1K_V1')
+    model_ft = models.efficientnet_b0(weights='IMAGENET1K_V1')
     trainer = Trainer(model_ft, dataloaders)
     model_ft = trainer.train_pretrained_model(args.epochs)
 
