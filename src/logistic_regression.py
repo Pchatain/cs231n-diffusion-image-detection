@@ -11,8 +11,12 @@ from sklearn.metrics import f1_score
 import argparse
 import plotly.graph_objects as go
 
+import wandb
+
 from data import load_training_dataset
 from utils import get_training_args
+
+WANDB_PROJECT_NAME = "cs231n"
 
 class LogisticRegression(nn.Module):
     def __init__(self):
@@ -80,6 +84,16 @@ def main():
     """
     args = get_training_args()
 
+    # Initialize Weights and Biases run
+    run = wandb.init(
+        # entity=WANDB_ENTITY_NAME,
+        project=WANDB_PROJECT_NAME,
+        notes=args.notes,
+        save_code=True,
+        config=args,
+    )
+    assert run is not None
+
     BATCH_SIZE = 32
     images, labels = load_training_dataset(real_imgs_path=args.real, fake_imgs_path=args.fake)
     print(f'Loaded dataset of size {len(images)}')
@@ -120,25 +134,26 @@ def main():
         f1_test_lst.append(f1_test)
         accuracy_train_lst.append(accuracy_train)
         accuracy_test_lst.append(accuracy_test)
+        wandb.log({"f1_train": f1_train, "f1_test": f1_test, "accuracy_train": accuracy_train, "accuracy_test": accuracy_test})
     
-
+    wandb.finish()
     # use plotly to plot the f1 scores vs epochs
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=list(range(args.epochs)), y=f1_train_lst, mode='lines+markers', name='Train F1 Score'))
-    fig.add_trace(go.Scatter(x=list(range(args.epochs)), y=f1_test_lst, mode='lines+markers', name='Test F1 Score'))
-    fig.update_layout(title='F1 Score vs Epochs', xaxis_title='Epochs', yaxis_title='F1 Score')
-    fig.show()
-    # save the fig as a png
-    fig.write_image("logistic_regression_f1.png")
+    # fig = go.Figure()
+    # fig.add_trace(go.Scatter(x=list(range(args.epochs)), y=f1_train_lst, mode='lines+markers', name='Train F1 Score'))
+    # fig.add_trace(go.Scatter(x=list(range(args.epochs)), y=f1_test_lst, mode='lines+markers', name='Test F1 Score'))
+    # fig.update_layout(title='F1 Score vs Epochs', xaxis_title='Epochs', yaxis_title='F1 Score')
+    # fig.show()
+    # # save the fig as a png
+    # fig.write_image("logistic_regression_f1.png")
 
-    # use plotly to plot the accuracy vs epochs
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=list(range(args.epochs)), y=accuracy_train_lst, mode='lines+markers', name='Train Accuracy'))
-    fig.add_trace(go.Scatter(x=list(range(args.epochs)), y=accuracy_test_lst, mode='lines+markers', name='Test Accuracy'))
-    fig.update_layout(title='Accuracy vs Epochs', xaxis_title='Epochs', yaxis_title='Accuracy')
-    fig.show()
-    # save the fig as a png
-    fig.write_image("logistic_regression_accuracy.png")
+    # # use plotly to plot the accuracy vs epochs
+    # fig = go.Figure()
+    # fig.add_trace(go.Scatter(x=list(range(args.epochs)), y=accuracy_train_lst, mode='lines+markers', name='Train Accuracy'))
+    # fig.add_trace(go.Scatter(x=list(range(args.epochs)), y=accuracy_test_lst, mode='lines+markers', name='Test Accuracy'))
+    # fig.update_layout(title='Accuracy vs Epochs', xaxis_title='Epochs', yaxis_title='Accuracy')
+    # fig.show()
+    # # save the fig as a png
+    # fig.write_image("logistic_regression_accuracy.png")
 
     
     # save model
