@@ -14,6 +14,7 @@ from sklearn.metrics import f1_score
 import numpy as np
 
 import time
+from tqdm import tqdm
 from tempfile import TemporaryDirectory
 import os
 import matplotlib.pyplot as plt
@@ -105,8 +106,8 @@ class Trainer:
                     )
                 )
                 n_incorrect += 1
-        print(f"Logging {len(n_incorrect)} images to wandb for epoch {epoch}. There were {n_incorrect} incorrect out of {n_total} ...")
-        print(f"Accuracy: {1 - n_incorrect/n_total}")
+        tqdm.write(f"Logging {len(image_log)} images to wandb for epoch {epoch}. There were {n_incorrect} incorrect out of {n_total} ...")
+        tqdm.write(f"Accuracy: {1 - n_incorrect/n_total}")
         wandb.log(
             {
                 "image": image_log,
@@ -116,7 +117,7 @@ class Trainer:
             },
         )
 
-    def one_step(self, model, log_dict, phase, best_model_params_path="", epoch=-1, best_acc=0.0):
+    def one_step(self, model, log_dict, phase, best_model_params_path="", epoch=-1, best_f1=0.0):
         """
         Args:
             model: Model to train
@@ -178,7 +179,7 @@ class Trainer:
         )
         epoch_f1 = f1_score(all_labels, all_preds, average="macro")
 
-        print(
+        tqdm.write(
             f"{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f} F1: {epoch_f1:.4f}"
         )
 
@@ -191,11 +192,12 @@ class Trainer:
             self.log_images(inputs, all_labels, all_preds, epoch)
 
         # deep copy the model
-        if phase == "val" and epoch_acc > best_acc:
+        if phase == "val" and epoch_f1 > best_f1:
             best_acc = epoch_acc
+            best_f1 = epoch_f1
             torch.save(model.state_dict(), best_model_params_path)
 
-        return best_acc
+        return best_acc, best_f1
 
 
     def train_model(self, epochs=25):
@@ -216,29 +218,25 @@ class Trainer:
 
         # Create a temporary directory to save training checkpoints
         model = self.model_ft
+        best_acc = 0.0
+        best_f1 = 0.0
         with TemporaryDirectory() as tempdir:
             best_model_params_path = os.path.join(tempdir, "best_model_params.pt")
-
             torch.save(model.state_dict(), best_model_params_path)
-            best_acc = 0.0
 
-            for epoch in range(epochs):
-                print(f"Epoch {epoch}/{epochs - 1}")
-                print("-" * 10)
-
+            for epoch in tqdm(range(epochs), desc="Epoch"):
                 # Each epoch has a training and validation phase
                 log_dict = {}
                 for phase in ["train", "val"]:
-                    best_acc = self.one_step(model, log_dict, phase=phase, best_model_params_path=best_model_params_path, epoch=epoch, best_acc=best_acc)
+                    best_acc, best_f1 = self.one_step(model, log_dict, phase=phase, best_model_params_path=best_model_params_path, epoch=epoch, best_f1=best_f1)
 
-                print()
                 wandb.log(log_dict, commit=True)
 
             time_elapsed = time.time() - since
-            print(
+            tqdm.write(
                 f"Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s"
             )
-            print(f"Best val Acc: {best_acc:4f}")
+            tqdm.write(f"Best val Acc: {best_acc:4f}")
 
             # load best model weights
             model.load_state_dict(torch.load(best_model_params_path))
@@ -249,6 +247,8 @@ class Trainer:
             test_dict = {}
             self.one_step(self.model_ft, test_dict, phase="test", epoch=epochs)
             wandb.log(test_dict, commit=True)
+        return best_acc, best_f1
+        
 
 
 def instantiate_model(args):
@@ -284,7 +284,10 @@ def run_cross_validation(args, full_dataset):
         train_datasets.append(train_dataset)
         val_datasets.append(val_dataset)
     # Loop over each fold
-    for fold in range(args.kfold):
+    best_acc = 0.0
+    best_f1 = 0.0
+    best_model = None
+    for fold in tqdm(range(args.kfold), desc="Folds"):
         train_loader = torch.utils.data.DataLoader(
             train_datasets[fold], batch_size=args.batch_size, shuffle=True
         )
@@ -295,16 +298,14 @@ def run_cross_validation(args, full_dataset):
 
         model_ft = instantiate_model(args)
         trainer = Trainer(model_ft, dataloaders, log_all_images=args.log_all_images, model_name=args.model)
-        model_ft = trainer.train_model(args.epochs)
+        accuracy, f1_score = trainer.train_model(args.epochs)
+        if f1_score > best_f1:
+            best_acc = accuracy
+            best_model = model_ft
+            best_f1 = f1_score
+    return best_model, best_acc, best_f1
 
-def main():
-    args = get_training_args()
-
-    images, labels = load_training_dataset(
-        real_imgs_path=args.real, fake_imgs_path=args.fake
-    )
-    print(f"Loaded dataset of size {len(images)}")
-
+def main(args):
     # Initialize Weights and Biases run
     run = wandb.init(
         # entity=WANDB_ENTITY_NAME,
@@ -314,23 +315,32 @@ def main():
         config=args,
     )
     assert run is not None
+    args = wandb.config
+
+    images, labels = load_training_dataset(
+        real_imgs_path=args.real, fake_imgs_path=args.fake
+    )
+    tqdm.write(f"Loaded dataset of size {len(images)}")
 
     # split into train and val and test
     train_frac, val_frac, test_frac = args.train_frac, args.val_frac, 1 - args.train_frac - args.val_frac
-    print(f'train_frac: {train_frac}, val_frac: {val_frac}, test_frac: {test_frac}')
+    tqdm.write(f'train_frac: {train_frac}, val_frac: {val_frac}, test_frac: {test_frac}')
     train_size = int(train_frac * len(images))
     val_size = int(val_frac * len(images))
     test_size = len(images) - train_size - val_size
 
     full_dataset = torch.utils.data.TensorDataset(images, labels)
-
+    best_acc = 0.0
     if args.kfold > 0:
-        print(f"Using train and validation split for cross validation. frac: {train_frac + val_frac}")
+        tqdm.write(f"Using train and validation split for cross validation. frac: {train_frac + val_frac}")
         train_dataset, test_dataset = torch.utils.data.random_split(
             full_dataset, [train_size + val_size, test_size]
         )
-        run_cross_validation(args, images, train_dataset)
+        best_model, best_acc, best_f1 = run_cross_validation(args, train_dataset)
+        tqdm.write(f"Final Best accuracy: {best_acc}, best f1: {best_f1}")
+
     else:
+        tqdm.write("Doing normal training with train, val, and test splits.")
         train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
             full_dataset, [train_size, val_size, test_size]
         )
@@ -349,8 +359,20 @@ def main():
 
         model_ft = instantiate_model(args)
         trainer = Trainer(model_ft, dataloaders, log_all_images=args.log_all_images, model_name=args.model)
-        model_ft = trainer.train_model(args.epochs)
+        accuracy = trainer.train_model(args.epochs)
+        tqdm.write(f"Final accuracy: {accuracy}")
+    wandb.log({"final_best_acc": best_acc}, commit=True)
 
 
 if __name__ == "__main__":
-    main()
+    args = get_training_args()
+    if args.sweep_id != "":
+        wandb.agent(
+            args.sweep_id,
+            function=lambda: main(args),
+            # entity=WANDB_ENTITY_NAME,
+            project=WANDB_PROJECT_NAME,
+            count=1,
+        )
+    else:
+        main(args)
