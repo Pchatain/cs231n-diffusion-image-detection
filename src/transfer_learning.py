@@ -21,6 +21,8 @@ import torchvision
 from torchvision import datasets, models, transforms
 import wandb
 
+import einops
+
 from data import load_training_dataset
 
 from utils import get_training_args
@@ -96,6 +98,7 @@ class Trainer():
                     running_total_size = 0
 
                     # Iterate over data.
+                    test_images = []
                     for inputs, labels in self.dataloaders[phase]:
                         inputs = inputs.to(self.device)
                         labels = labels.to(self.device)
@@ -124,6 +127,12 @@ class Trainer():
                         all_labels += labels.cpu().numpy().tolist()
                         
                         running_total_size += len(labels)
+                        
+                        if phase == "val":
+                            test_image = inputs[0].cpu().numpy()
+                            einops_image = einops.rearrange(test_image, 'c h w -> h w c')
+                            test_images.append(einops_image)
+
                     if phase == 'train':
                         scheduler.step()
 
