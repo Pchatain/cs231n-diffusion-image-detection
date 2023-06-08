@@ -29,15 +29,29 @@ from utils import get_training_args
 
 WANDB_PROJECT_NAME = "cs231n"
 
+class LogisticRegression(nn.Module):
+    def __init__(self):
+        super(LogisticRegression, self).__init__()
+        self.linear = nn.Linear(512*512*3, 2)
+    
+    def forward(self, x):
+        x = x.view(-1, 512*512*3)
+        # set dtype to float32
+        x = x.type(torch.float32)
+        x = self.linear(x)
+        return x
+
 
 class Trainer:
     """
     A class for training a pre-trained model
     """
 
-    def __init__(self, model_ft, dataloaders) -> None:
+    def __init__(self, model_ft, dataloaders, log_all_images, model_name="resnet") -> None:
         self.dataloaders = dataloaders
         self.model_ft = model_ft
+        self.log_all_images = log_all_images
+        self.model_name = model_name
         # Data augmentation and normalization for training
         # Just normalization for validation
         # data_transforms = {
@@ -55,135 +69,130 @@ class Trainer:
         #     ]),
         # }
         self.class_names = ["real", "fake"]
-
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    def _train_model(self, model, criterion, optimizer, scheduler, num_epochs=25):
+        if "resnet" in self.model_name:
+            num_ftrs = self.model_ft.fc.in_features
+            # Here the size of each output sample is set to 2.
+            # Alternatively, it can be generalized to ``nn.Linear(num_ftrs, len(class_names))``.
+            self.model_ft.fc = nn.Linear(num_ftrs, 2)
+
+
+    def log_images(self, inputs, labels, preds, epoch):
         """
         Args:
-            model: PyTorch model
-            criterion: Loss function
-            optimizer: Optimizer for parameters
-            scheduler: Instance of ``torch.optim.lr_scheduler``
-            num_epochs: Number of epochs
-
-        Returns:
-            model: Trained Model with best validation accuracy
+            inputs: Batch of images
+            labels: Ground truth labels
+            preds: Predicted labels
+            epoch: Epoch number
         """
-        since = time.time()
+        image_log = []
+        n_incorrect = 0
+        n_total = 0
+        for i, image in enumerate(inputs):
+            test_image = image.cpu().numpy()
+            einops_image = einops.rearrange(test_image, "c h w -> h w c")
+            n_total += 1
+            if self.log_all_images or labels[i] != preds[i]:
+                image_log.append(
+                    wandb.Image(
+                        einops_image,
+                        caption=f"Label: {self.class_names[labels[i]]}, Predicted: {self.class_names[preds[i]]}",
+                    )
+                )
+                n_incorrect += 1
+        print(f"Logging {len(n_incorrect)} images to wandb for epoch {epoch}. There were {n_incorrect} incorrect out of {n_total} ...")
+        print(f"Accuracy: {1 - n_incorrect/n_total}")
+        wandb.log(
+            {
+                "image": image_log,
+                "epoch": epoch,
+                "predicted_label": preds,
+                "ground_truth_label": labels,
+            },
+        )
 
-        # Create a temporary directory to save training checkpoints
-        with TemporaryDirectory() as tempdir:
-            best_model_params_path = os.path.join(tempdir, "best_model_params.pt")
+    def one_step(self, model, log_dict, phase, best_model_params_path="", epoch=-1, best_acc=0.0):
+        """
+        Args:
+            model: Model to train
+            log_dict: Dictionary to log to wandb
+            phase: Phase of training (train or val or test)
+            best_model_params_path: Path to save best model parameters
+            epoch: Epoch number
+        """
+        if phase == "train":
+            model.train()  # Set model to training mode
+        else:
+            model.eval()  # Set model to evaluate mode
 
+        running_loss = 0.0
+        # running_corrects = 0
+        all_preds = []
+        all_labels = []
+        all_inputs = []
+        running_total_size = 0
+
+        # Iterate over data.
+        for inputs, labels in self.dataloaders[phase]:
+            inputs = inputs.to(self.device)
+            labels = labels.to(self.device)
+
+            # zero the parameter gradients
+            self.optimizer.zero_grad()
+
+            # forward
+            # track history if only in train
+            with torch.set_grad_enabled(phase == "train"):
+                outputs = model(inputs)
+                _, preds = torch.max(outputs, 1)
+                labels = labels.type(torch.long)
+                loss = self.criterion(outputs, labels)
+
+                # backward + optimize only if in training phase
+                if phase == "train":
+                    loss.backward()
+                    self.optimizer.step()
+
+            # statistics
+            running_loss += loss.item() * inputs.size(0)
+            # running_corrects += torch.sum(preds == labels.data)
+            # add to all preds and labels on cpu
+            all_preds += preds.cpu().numpy().tolist()
+            all_labels += labels.cpu().numpy().tolist()
+            if phase != "train":
+                all_inputs += inputs.cpu().numpy().tolist()
+
+            running_total_size += len(labels)
+
+        if phase == "train":
+            self.scheduler.step()
+
+        epoch_loss = running_loss / running_total_size
+        epoch_acc = torch.mean(
+            (torch.tensor(all_preds) == torch.tensor(all_labels)).float()
+        )
+        epoch_f1 = f1_score(all_labels, all_preds, average="macro")
+
+        print(
+            f"{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f} F1: {epoch_f1:.4f}"
+        )
+
+        log_dict[f"{phase}_loss"] = epoch_loss
+        log_dict[f"{phase}_acc"] = epoch_acc
+        log_dict[f"{phase}_f1"] = epoch_f1
+
+        # log images to wandb
+        if phase != "train":
+            self.log_images(inputs, all_labels, all_preds, epoch)
+
+        # deep copy the model
+        if phase == "val" and epoch_acc > best_acc:
+            best_acc = epoch_acc
             torch.save(model.state_dict(), best_model_params_path)
-            best_acc = 0.0
 
-            for epoch in range(num_epochs):
-                print(f"Epoch {epoch}/{num_epochs - 1}")
-                print("-" * 10)
+        return best_acc
 
-                # Each epoch has a training and validation phase
-                log_dict = {}
-                for phase in ["train", "val"]:
-                    if phase == "train":
-                        model.train()  # Set model to training mode
-                    else:
-                        model.eval()  # Set model to evaluate mode
-
-                    running_loss = 0.0
-                    # running_corrects = 0
-                    all_preds = []
-                    all_labels = []
-                    running_total_size = 0
-
-                    # Iterate over data.
-                    test_images = []
-                    for inputs, labels in self.dataloaders[phase]:
-                        inputs = inputs.to(self.device)
-                        labels = labels.to(self.device)
-
-                        # zero the parameter gradients
-                        optimizer.zero_grad()
-
-                        # forward
-                        # track history if only in train
-                        with torch.set_grad_enabled(phase == "train"):
-                            outputs = model(inputs)
-                            _, preds = torch.max(outputs, 1)
-                            labels = labels.type(torch.long)
-                            loss = criterion(outputs, labels)
-
-                            # backward + optimize only if in training phase
-                            if phase == "train":
-                                loss.backward()
-                                optimizer.step()
-
-                        # statistics
-                        running_loss += loss.item() * inputs.size(0)
-                        # running_corrects += torch.sum(preds == labels.data)
-                        # add to all preds and labels on cpu
-                        all_preds += preds.cpu().numpy().tolist()
-                        all_labels += labels.cpu().numpy().tolist()
-
-                        running_total_size += len(labels)
-
-                        # log images to wandb
-                        if phase == "val":
-                            for i, image in enumerate(inputs):
-                                test_image = image.cpu().numpy()
-                                einops_image = einops.rearrange(
-                                    test_image, "c h w -> h w c"
-                                )
-                                test_images.append(einops_image)
-                                wandb.log(
-                                    {
-                                        "image": wandb.Image(
-                                            einops_image,
-                                            caption=f"Label: {self.class_names[labels[i]]}, Predicted: {self.class_names[preds[i]]}",
-                                        ),
-                                        "epoch": epoch,
-                                        "predicted_label": self.class_names[preds[i]],
-                                        "ground_truth_label": self.class_names[
-                                            labels[i]
-                                        ],
-                                    }
-                                )
-
-                    if phase == "train":
-                        scheduler.step()
-
-                    epoch_loss = running_loss / running_total_size
-                    epoch_acc = torch.mean(
-                        (torch.tensor(all_preds) == torch.tensor(all_labels)).float()
-                    )
-                    epoch_f1 = f1_score(all_labels, all_preds, average="macro")
-
-                    print(
-                        f"{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f} F1: {epoch_f1:.4f}"
-                    )
-
-                    log_dict[f"{phase}_loss"] = epoch_loss
-                    log_dict[f"{phase}_acc"] = epoch_acc
-                    log_dict[f"{phase}_f1"] = epoch_f1
-
-                    # deep copy the model
-                    if phase == "val" and epoch_acc > best_acc:
-                        best_acc = epoch_acc
-                        torch.save(model.state_dict(), best_model_params_path)
-
-                print()
-                wandb.log(log_dict)
-
-            time_elapsed = time.time() - since
-            print(
-                f"Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s"
-            )
-            print(f"Best val Acc: {best_acc:4f}")
-
-            # load best model weights
-            model.load_state_dict(torch.load(best_model_params_path))
-        self.model_ft = model
 
     def imshow(self, inp, title=None):
         """Display image for Tensor."""
@@ -229,30 +238,57 @@ class Trainer:
                         return
             model.train(mode=was_training)
 
-    def train_pretrained_model(self, epochs=25):
-        """
-        Trains a pretrained resnet
-        Resets the last layer to be a linear layer with 2 outputs, the logitts for real class
-        and the logits for fake class
-        """
-        num_ftrs = self.model_ft.fc.in_features
-        # Here the size of each output sample is set to 2.
-        # Alternatively, it can be generalized to ``nn.Linear(num_ftrs, len(class_names))``.
-        self.model_ft.fc = nn.Linear(num_ftrs, 2)
 
+    def train_model(self, epochs=25):
+        """
+        Trains a model for a given number of epochs
+        """
         self.model_ft = self.model_ft.to(self.device)
 
-        criterion = nn.CrossEntropyLoss()
+        self.criterion = nn.CrossEntropyLoss()
 
         # Observe that all parameters are being optimized
-        optimizer_ft = optim.SGD(self.model_ft.parameters(), lr=0.001, momentum=0.9)
+        self.optimizer = optim.SGD(self.model_ft.parameters(), lr=0.001, momentum=0.9)
 
         # Decay LR by a factor of 0.1 every 7 epochs
-        exp_lr_scheduler = lr_scheduler.StepLR(optimizer_ft, step_size=7, gamma=0.1)
+        self.scheduler = lr_scheduler.StepLR(self.optimizer, step_size=7, gamma=0.1)
 
-        self._train_model(
-            self.model_ft, criterion, optimizer_ft, exp_lr_scheduler, num_epochs=epochs
-        )
+        since = time.time()
+
+        # Create a temporary directory to save training checkpoints
+        model = self.model_ft
+        with TemporaryDirectory() as tempdir:
+            best_model_params_path = os.path.join(tempdir, "best_model_params.pt")
+
+            torch.save(model.state_dict(), best_model_params_path)
+            best_acc = 0.0
+
+            for epoch in range(epochs):
+                print(f"Epoch {epoch}/{epochs - 1}")
+                print("-" * 10)
+
+                # Each epoch has a training and validation phase
+                log_dict = {}
+                for phase in ["train", "val"]:
+                    best_acc = self.one_step(model, log_dict, phase=phase, best_model_params_path=best_model_params_path, epoch=epoch, best_acc=best_acc)
+
+                print()
+                wandb.log(log_dict, commit=True)
+
+            time_elapsed = time.time() - since
+            print(
+                f"Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s"
+            )
+            print(f"Best val Acc: {best_acc:4f}")
+
+            # load best model weights
+            model.load_state_dict(torch.load(best_model_params_path))
+        self.model_ft = model
+
+        # evauluate model on test set
+        test_dict = {}
+        self.one_step(self.model_ft, test_dict, phase="test", epoch=epochs)
+        wandb.log(test_dict, commit=True)
 
         # self.visualize_model()
 
@@ -260,7 +296,6 @@ class Trainer:
 def main():
     args = get_training_args()
 
-    BATCH_SIZE = 32
     images, labels = load_training_dataset(
         real_imgs_path=args.real, fake_imgs_path=args.fake
     )
@@ -276,27 +311,41 @@ def main():
     )
     assert run is not None
 
-    # split into train and val
-    train_size = int(0.8 * len(images))
-    val_size = len(images) - train_size
+    # split into train and val and test
+    train_frac, val_frac, test_frac = args.train_frac, args.val_frac, 1 - args.train_frac - args.val_frac
+    print(f'train_frac: {train_frac}, val_frac: {val_frac}, test_frac: {test_frac}')
+    train_size = int(train_frac * len(images))
+    val_size = int(val_frac * len(images))
+    test_size = len(images) - train_size - val_size
+
     full_dataset = torch.utils.data.TensorDataset(images, labels)
-    train_dataset, val_dataset = torch.utils.data.random_split(
-        full_dataset, [train_size, val_size]
+    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
+        full_dataset, [train_size, val_size, test_size]
     )
 
     # create dataloaders
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=BATCH_SIZE, shuffle=True
+        train_dataset, batch_size=args.batch_size, shuffle=True
     )
     val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=BATCH_SIZE, shuffle=True
+        val_dataset, batch_size=args.batch_size, shuffle=True
     )
-    dataloaders = {"train": train_loader, "val": val_loader}
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset, batch_size=args.batch_size, shuffle=True
+    )
+    dataloaders = {"train": train_loader, "val": val_loader, "test": test_loader}
 
     # instantiate model
-    model_ft = models.resnet18(weights="IMAGENET1K_V1")
-    trainer = Trainer(model_ft, dataloaders)
-    model_ft = trainer.train_pretrained_model(args.epochs)
+    if args.model == "logistic_regression":
+        model_ft = LogisticRegression()
+    elif args.model == "resnet18":
+        model_ft = models.resnet18(weights="IMAGENET1K_V1")
+    elif args.model == "resnet34":
+        model_ft = models.resnet34(weights="IMAGENET1K_V1")
+    else:
+        raise ValueError(f"Unknown model type {args.model}")
+    trainer = Trainer(model_ft, dataloaders, log_all_images=args.log_all_images, model_name=args.model)
+    model_ft = trainer.train_model(args.epochs)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,12 @@ def get_training_args():
     parser = argparse.ArgumentParser(description='Train a logistic regression classifier on the midjourney dataset')
     parser.add_argument('--real', type=str, default="laion-art/real_658", help='path to real images')
     parser.add_argument('--fake', type=str, default="full_660", help='path to fake images')
-    parser.add_argument('--epochs', type=int, default=30, help='number of epochs to train for')
+    parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
     parser.add_argument('--notes', type=str, default="", help='notes for the run')
+    parser.add_argument('--log_all_images', action='store_true', help='log all images to tensorboard')
+    parser.add_argument('--model', type=str, default="logistic_regression", help='model to train')
+    parser.add_argument('--batch_size', type=int, default=32, help='batch size')
+    parser.add_argument("--train_frac", type=float, default=0.7, help="fraction of data to use for training")
+    parser.add_argument("--val_frac", type=float, default=0.15, help="fraction of data to use for validation")
     args = parser.parse_args()
     return args
