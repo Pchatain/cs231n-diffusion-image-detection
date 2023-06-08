@@ -30,12 +30,10 @@ def load_training_dataset(real_imgs_path="", fake_imgs_path="", balance_datasets
     real_images = np.load(real_dataset_path)
     real_images = torch.from_numpy(real_images)
 
-    real_labels = torch.ones(len(real_images))
+    real_labels = torch.zeros(len(real_images))
     if balance_datasets:
         fake_images = fake_images[:len(real_images)]
-        fake_labels = torch.zeros(len(fake_images))
-    else:
-        fake_labels = torch.zeros(len(fake_images))
+    fake_labels = torch.ones(len(fake_images))
     images = torch.cat((real_images, fake_images))
     images = einops.rearrange(images, 'b h w c -> b c h w')
     # change datatype to FloatTensor
