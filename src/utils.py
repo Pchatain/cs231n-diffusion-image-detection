@@ -19,5 +19,6 @@ def get_training_args():
     parser.add_argument('--batch_size', type=int, default=32, help='batch size')
     parser.add_argument("--train_frac", type=float, default=0.7, help="fraction of data to use for training")
     parser.add_argument("--val_frac", type=float, default=0.15, help="fraction of data to use for validation")
+    parser.add_argument('--kfold', type=int, default=0, help='kfold cross validation')
     args = parser.parse_args()
     return args

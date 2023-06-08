@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import torchvision
 from torchvision import datasets, models, transforms
 import wandb
+from sklearn.model_selection import KFold
 
 import einops
 
@@ -76,6 +77,9 @@ class Trainer:
             # Here the size of each output sample is set to 2.
             # Alternatively, it can be generalized to ``nn.Linear(num_ftrs, len(class_names))``.
             self.model_ft.fc = nn.Linear(num_ftrs, 2)
+        elif "efficientnet" in self.model_name:
+            num_ftrs = self.model_ft.classifier[-1].in_features
+            self.model_ft.classifier[-1] = nn.Linear(num_ftrs, 2)
 
 
     def log_images(self, inputs, labels, preds, epoch):
@@ -194,51 +198,6 @@ class Trainer:
         return best_acc
 
 
-    def imshow(self, inp, title=None):
-        """Display image for Tensor."""
-        inp = inp.numpy().transpose((1, 2, 0))
-        mean = np.array([0.485, 0.456, 0.406])
-        std = np.array([0.229, 0.224, 0.225])
-        inp = std * inp + mean
-        inp = np.clip(inp, 0, 1)
-        plt.imshow(inp)
-        if title is not None:
-            plt.title(title)
-        plt.pause(0.001)  # pause a bit so that plots are updated
-
-    def visualize_model(self, num_images=6):
-        """
-        Args:
-            model: PyTorch model
-            num_images: number of images to display
-        """
-        model = self.model_ft
-        was_training = model.training
-        model.eval()
-        images_so_far = 0
-        fig = plt.figure()
-
-        with torch.no_grad():
-            for i, (inputs, labels) in enumerate(self.dataloaders["val"]):
-                inputs = inputs.to(self.device)
-                labels = labels.to(self.device)
-
-                outputs = model(inputs)
-                _, preds = torch.max(outputs, 1)
-
-                for j in range(inputs.size()[0]):
-                    images_so_far += 1
-                    ax = plt.subplot(num_images // 2, 2, images_so_far)
-                    ax.axis("off")
-                    ax.set_title(f"predicted: {self.class_names[preds[j]]}")
-                    self.imshow(inputs.cpu().data[j])
-
-                    if images_so_far == num_images:
-                        model.train(mode=was_training)
-                        return
-            model.train(mode=was_training)
-
-
     def train_model(self, epochs=25):
         """
         Trains a model for a given number of epochs
@@ -286,12 +245,57 @@ class Trainer:
         self.model_ft = model
 
         # evauluate model on test set
-        test_dict = {}
-        self.one_step(self.model_ft, test_dict, phase="test", epoch=epochs)
-        wandb.log(test_dict, commit=True)
+        if "test" in self.dataloaders:
+            test_dict = {}
+            self.one_step(self.model_ft, test_dict, phase="test", epoch=epochs)
+            wandb.log(test_dict, commit=True)
 
-        # self.visualize_model()
 
+def instantiate_model(args):
+    """
+    Makes a model instance based on the model type
+    """
+    if args.model == "logistic_regression":
+        model_ft = LogisticRegression()
+    elif args.model == "resnet18":
+        model_ft = models.resnet18(weights="IMAGENET1K_V1")
+    elif args.model == "resnet34":
+        model_ft = models.resnet34(weights="IMAGENET1K_V1")
+    elif args.model == "efficientnet_b0":
+        model_ft = models.efficientnet_b0(weights="IMAGENET1K_V1")
+    else:
+        raise ValueError(f"Unknown model type {args.model}")
+    return model_ft
+
+
+def run_cross_validation(args, full_dataset):
+    """
+    Trains the model using cross validation.
+    """
+    # Create the KFold object
+    kf = KFold(n_splits=args.kfold, shuffle=True)
+    # Lists to store the datasets for each fold
+    train_datasets, val_datasets = [], []
+    # Split the data into k folds
+    for train_indices, val_indices in kf.split(full_dataset):
+        train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
+        val_dataset = torch.utils.data.Subset(full_dataset, val_indices)
+        
+        train_datasets.append(train_dataset)
+        val_datasets.append(val_dataset)
+    # Loop over each fold
+    for fold in range(args.kfold):
+        train_loader = torch.utils.data.DataLoader(
+            train_datasets[fold], batch_size=args.batch_size, shuffle=True
+        )
+        val_loader = torch.utils.data.DataLoader(
+            val_datasets[fold], batch_size=args.batch_size, shuffle=True
+        )
+        dataloaders = {"train": train_loader, "val": val_loader}
+
+        model_ft = instantiate_model(args)
+        trainer = Trainer(model_ft, dataloaders, log_all_images=args.log_all_images, model_name=args.model)
+        model_ft = trainer.train_model(args.epochs)
 
 def main():
     args = get_training_args()
@@ -319,33 +323,33 @@ def main():
     test_size = len(images) - train_size - val_size
 
     full_dataset = torch.utils.data.TensorDataset(images, labels)
-    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
-        full_dataset, [train_size, val_size, test_size]
-    )
 
-    # create dataloaders
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True
-    )
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=args.batch_size, shuffle=True
-    )
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=args.batch_size, shuffle=True
-    )
-    dataloaders = {"train": train_loader, "val": val_loader, "test": test_loader}
-
-    # instantiate model
-    if args.model == "logistic_regression":
-        model_ft = LogisticRegression()
-    elif args.model == "resnet18":
-        model_ft = models.resnet18(weights="IMAGENET1K_V1")
-    elif args.model == "resnet34":
-        model_ft = models.resnet34(weights="IMAGENET1K_V1")
+    if args.kfold > 0:
+        print(f"Using train and validation split for cross validation. frac: {train_frac + val_frac}")
+        train_dataset, test_dataset = torch.utils.data.random_split(
+            full_dataset, [train_size + val_size, test_size]
+        )
+        run_cross_validation(args, images, train_dataset)
     else:
-        raise ValueError(f"Unknown model type {args.model}")
-    trainer = Trainer(model_ft, dataloaders, log_all_images=args.log_all_images, model_name=args.model)
-    model_ft = trainer.train_model(args.epochs)
+        train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
+            full_dataset, [train_size, val_size, test_size]
+        )
+
+        # create dataloaders
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=args.batch_size, shuffle=True
+        )
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=args.batch_size, shuffle=True
+        )
+        test_loader = torch.utils.data.DataLoader(
+            test_dataset, batch_size=args.batch_size, shuffle=True
+        )
+        dataloaders = {"train": train_loader, "val": val_loader, "test": test_loader}
+
+        model_ft = instantiate_model(args)
+        trainer = Trainer(model_ft, dataloaders, log_all_images=args.log_all_images, model_name=args.model)
+        model_ft = trainer.train_model(args.epochs)
 
 
 if __name__ == "__main__":
