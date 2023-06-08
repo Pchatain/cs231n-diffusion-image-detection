@@ -47,11 +47,11 @@ class Trainer:
     A class for training a pre-trained model
     """
 
-    def __init__(self, model_ft, dataloaders, log_all_images, model_name="resnet") -> None:
+    def __init__(self, model_ft, dataloaders, args) -> None: #log_all_images, model_name="resnet") -> None:
         self.dataloaders = dataloaders
         self.model_ft = model_ft
-        self.log_all_images = log_all_images
-        self.model_name = model_name
+        self.log_all_images = args.log_all_images
+        self.model_name = args.model
         # Data augmentation and normalization for training
         # Just normalization for validation
         # data_transforms = {
@@ -71,11 +71,28 @@ class Trainer:
         self.class_names = ["real", "fake"]
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+        # Observe that all parameters are being optimized
+        self.lr = args.lr #default 0.001
+        if args.optimizer.lower() == "sgd":
+            self.optimizer = optim.SGD(self.model_ft.parameters(), lr=self.lr, momentum=0.9)
+        elif args.optimizer.lower() == "adagrad":
+            self.optimizer = optim.Adagrad(self.model_ft.parameters(), lr=self.lr)
+        elif args.optimizer.lower() == "adam":
+            self.optimizer = optim.Adam(self.model_ft.parameters(), lr=self.lr)
+
+        # Decay LR by a factor of 0.1 every 7 epochs
+        self.scheduler = lr_scheduler.StepLR(self.optimizer, step_size=7, gamma=0.1)
+
+
         if "resnet" in self.model_name:
             num_ftrs = self.model_ft.fc.in_features
             # Here the size of each output sample is set to 2.
             # Alternatively, it can be generalized to ``nn.Linear(num_ftrs, len(class_names))``.
             self.model_ft.fc = nn.Linear(num_ftrs, 2)
+        elif 'efficientnet' in self.model_name:
+            num_ftrs = self.model_ft.classifier[-1].in_features
+            self.model_ft.classifier[-1] = nn.Linear(num_ftrs, 2)
+
 
 
     def log_images(self, inputs, labels, preds, epoch):
@@ -101,7 +118,7 @@ class Trainer:
                     )
                 )
                 n_incorrect += 1
-        print(f"Logging {len(n_incorrect)} images to wandb for epoch {epoch}. There were {n_incorrect} incorrect out of {n_total} ...")
+        print(f"Logging {n_incorrect} images to wandb for epoch {epoch}. There were {n_incorrect} incorrect out of {n_total} ...")
         print(f"Accuracy: {1 - n_incorrect/n_total}")
         wandb.log(
             {
@@ -247,12 +264,6 @@ class Trainer:
 
         self.criterion = nn.CrossEntropyLoss()
 
-        # Observe that all parameters are being optimized
-        self.optimizer = optim.SGD(self.model_ft.parameters(), lr=0.001, momentum=0.9)
-
-        # Decay LR by a factor of 0.1 every 7 epochs
-        self.scheduler = lr_scheduler.StepLR(self.optimizer, step_size=7, gamma=0.1)
-
         since = time.time()
 
         # Create a temporary directory to save training checkpoints
@@ -317,11 +328,17 @@ def main():
     train_size = int(train_frac * len(images))
     val_size = int(val_frac * len(images))
     test_size = len(images) - train_size - val_size
-
+    
     full_dataset = torch.utils.data.TensorDataset(images, labels)
     train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
-        full_dataset, [train_size, val_size, test_size]
+        full_dataset, [train_size, val_size, test_size], generator=torch.Generator().manual_seed(0)
     )
+    # for ds in [val_dataset, test_dataset]:
+    #     ctr = collections.Counter()
+    #     for _, target in ds:
+    #         ctr[target] += 1
+    #     print("ctr is", ctr)
+    # assert(False)
 
     # create dataloaders
     train_loader = torch.utils.data.DataLoader(
@@ -342,9 +359,11 @@ def main():
         model_ft = models.resnet18(weights="IMAGENET1K_V1")
     elif args.model == "resnet34":
         model_ft = models.resnet34(weights="IMAGENET1K_V1")
+    elif args.model == 'efficientnet_b0':
+        model_ft = models.efficientnet_b0(weights='DEFAULT')
     else:
         raise ValueError(f"Unknown model type {args.model}")
-    trainer = Trainer(model_ft, dataloaders, log_all_images=args.log_all_images, model_name=args.model)
+    trainer = Trainer(model_ft, dataloaders, args) #log_all_images=args.log_all_images, model_name=args.model)
     model_ft = trainer.train_model(args.epochs)
 
 
