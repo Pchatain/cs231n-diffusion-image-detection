@@ -193,11 +193,10 @@ class Trainer:
 
         # deep copy the model
         if phase == "val" and epoch_f1 > best_f1:
-            best_acc = epoch_acc
             best_f1 = epoch_f1
             torch.save(model.state_dict(), best_model_params_path)
 
-        return best_acc, best_f1
+        return epoch_acc, best_f1
 
 
     def train_model(self, epochs=25):
@@ -224,7 +223,7 @@ class Trainer:
             best_model_params_path = os.path.join(tempdir, "best_model_params.pt")
             torch.save(model.state_dict(), best_model_params_path)
 
-            for epoch in tqdm(range(epochs), desc="Epoch"):
+            for epoch in tqdm(range(epochs), desc="Epochs"):
                 # Each epoch has a training and validation phase
                 log_dict = {}
                 for phase in ["train", "val"]:
@@ -233,9 +232,6 @@ class Trainer:
                 wandb.log(log_dict, commit=True)
 
             time_elapsed = time.time() - since
-            tqdm.write(
-                f"Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s"
-            )
             tqdm.write(f"Best val Acc: {best_acc:4f}")
 
             # load best model weights
@@ -301,7 +297,7 @@ def run_cross_validation(args, full_dataset):
         accuracy, f1_score = trainer.train_model(args.epochs)
         if f1_score > best_f1:
             best_acc = accuracy
-            best_model = model_ft
+            best_model = trainer.model_ft
             best_f1 = f1_score
     return best_model, best_acc, best_f1
 
@@ -331,6 +327,7 @@ def main(args):
 
     full_dataset = torch.utils.data.TensorDataset(images, labels)
     best_acc = 0.0
+    best_f1 = 0.0
     if args.kfold > 0:
         tqdm.write(f"Using train and validation split for cross validation. frac: {train_frac + val_frac}")
         train_dataset, test_dataset = torch.utils.data.random_split(
@@ -359,9 +356,9 @@ def main(args):
 
         model_ft = instantiate_model(args)
         trainer = Trainer(model_ft, dataloaders, log_all_images=args.log_all_images, model_name=args.model)
-        accuracy = trainer.train_model(args.epochs)
-        tqdm.write(f"Final accuracy: {accuracy}")
-    wandb.log({"final_best_acc": best_acc}, commit=True)
+        best_acc, best_f1 = trainer.train_model(args.epochs)
+
+    wandb.log({"final_best_acc": best_acc, "final_best_f1": best_f1})
 
 
 if __name__ == "__main__":
