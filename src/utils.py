@@ -23,6 +23,7 @@ def get_training_args():
     parser.add_argument('--kfold', type=int, default=0, help='kfold cross validation')
     parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
     parser.add_argument('--sweep_id', type=str, default="", help='sweep id')
+    parser.add_argument('--sweep_count', type=int, default=1, help='number of runs to do for this agent')
 
     args = parser.parse_args()
     return args
