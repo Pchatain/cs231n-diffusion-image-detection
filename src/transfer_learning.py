@@ -49,11 +49,11 @@ class Trainer:
     A class for training a pre-trained model
     """
 
-    def __init__(self, model_ft, dataloaders, log_all_images, model_name="resnet") -> None:
+    def __init__(self, model_ft, dataloaders, args) -> None: #log_all_images, model_name="resnet") -> None:
         self.dataloaders = dataloaders
         self.model_ft = model_ft
-        self.log_all_images = log_all_images
-        self.model_name = model_name
+        self.log_all_images = args.log_all_images
+        self.model_name = args.model
         # Data augmentation and normalization for training
         # Just normalization for validation
         # data_transforms = {
@@ -73,6 +73,19 @@ class Trainer:
         self.class_names = ["real", "fake"]
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+        # Observe that all parameters are being optimized
+        self.lr = args.lr #default 0.001
+        if args.optimizer.lower() == "sgd":
+            self.optimizer = optim.SGD(self.model_ft.parameters(), lr=self.lr, momentum=0.9)
+        elif args.optimizer.lower() == "adagrad":
+            self.optimizer = optim.Adagrad(self.model_ft.parameters(), lr=self.lr)
+        elif args.optimizer.lower() == "adam":
+            self.optimizer = optim.Adam(self.model_ft.parameters(), lr=self.lr)
+
+        # Decay LR by a factor of 0.1 every 7 epochs
+        self.scheduler = lr_scheduler.StepLR(self.optimizer, step_size=7, gamma=0.1)
+
+
         if "resnet" in self.model_name:
             num_ftrs = self.model_ft.fc.in_features
             # Here the size of each output sample is set to 2.
@@ -81,6 +94,10 @@ class Trainer:
         elif "efficientnet" in self.model_name:
             num_ftrs = self.model_ft.classifier[-1].in_features
             self.model_ft.classifier[-1] = nn.Linear(num_ftrs, 2)
+        elif 'efficientnet' in self.model_name:
+            num_ftrs = self.model_ft.classifier[-1].in_features
+            self.model_ft.classifier[-1] = nn.Linear(num_ftrs, 2)
+
 
 
     def log_images(self, inputs, labels, preds, epoch):
@@ -293,7 +310,7 @@ def run_cross_validation(args, full_dataset):
         dataloaders = {"train": train_loader, "val": val_loader}
 
         model_ft = instantiate_model(args)
-        trainer = Trainer(model_ft, dataloaders, log_all_images=args.log_all_images, model_name=args.model)
+        trainer = Trainer(model_ft, dataloaders, args)
         accuracy, f1_score = trainer.train_model(args.epochs)
         if f1_score > best_f1:
             best_acc = accuracy
@@ -355,7 +372,7 @@ def main(args):
         dataloaders = {"train": train_loader, "val": val_loader, "test": test_loader}
 
         model_ft = instantiate_model(args)
-        trainer = Trainer(model_ft, dataloaders, log_all_images=args.log_all_images, model_name=args.model)
+        trainer = Trainer(model_ft, dataloaders, args)
         best_acc, best_f1 = trainer.train_model(args.epochs)
 
     wandb.log({"final_best_acc": best_acc, "final_best_f1": best_f1})
