@@ -14,12 +14,14 @@ from sklearn.metrics import f1_score
 import numpy as np
 
 import time
+from tqdm import tqdm
 from tempfile import TemporaryDirectory
 import os
 import matplotlib.pyplot as plt
 import torchvision
 from torchvision import datasets, models, transforms
 import wandb
+from sklearn.model_selection import KFold
 
 import einops
 
@@ -89,6 +91,9 @@ class Trainer:
             # Here the size of each output sample is set to 2.
             # Alternatively, it can be generalized to ``nn.Linear(num_ftrs, len(class_names))``.
             self.model_ft.fc = nn.Linear(num_ftrs, 2)
+        elif "efficientnet" in self.model_name:
+            num_ftrs = self.model_ft.classifier[-1].in_features
+            self.model_ft.classifier[-1] = nn.Linear(num_ftrs, 2)
         elif 'efficientnet' in self.model_name:
             num_ftrs = self.model_ft.classifier[-1].in_features
             self.model_ft.classifier[-1] = nn.Linear(num_ftrs, 2)
@@ -118,8 +123,8 @@ class Trainer:
                     )
                 )
                 n_incorrect += 1
-        print(f"Logging {n_incorrect} images to wandb for epoch {epoch}. There were {n_incorrect} incorrect out of {n_total} ...")
-        print(f"Accuracy: {1 - n_incorrect/n_total}")
+        tqdm.write(f"Logging {len(image_log)} images to wandb for epoch {epoch}. There were {n_incorrect} incorrect out of {n_total} ...")
+        tqdm.write(f"Accuracy: {1 - n_incorrect/n_total}")
         wandb.log(
             {
                 "image": image_log,
@@ -129,7 +134,7 @@ class Trainer:
             },
         )
 
-    def one_step(self, model, log_dict, phase, best_model_params_path="", epoch=-1, best_acc=0.0):
+    def one_step(self, model, log_dict, phase, best_model_params_path="", epoch=-1, best_f1=0.0):
         """
         Args:
             model: Model to train
@@ -191,7 +196,7 @@ class Trainer:
         )
         epoch_f1 = f1_score(all_labels, all_preds, average="macro")
 
-        print(
+        tqdm.write(
             f"{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f} F1: {epoch_f1:.4f}"
         )
 
@@ -204,56 +209,11 @@ class Trainer:
             self.log_images(inputs, all_labels, all_preds, epoch)
 
         # deep copy the model
-        if phase == "val" and epoch_acc > best_acc:
-            best_acc = epoch_acc
+        if phase == "val" and epoch_f1 > best_f1:
+            best_f1 = epoch_f1
             torch.save(model.state_dict(), best_model_params_path)
 
-        return best_acc
-
-
-    def imshow(self, inp, title=None):
-        """Display image for Tensor."""
-        inp = inp.numpy().transpose((1, 2, 0))
-        mean = np.array([0.485, 0.456, 0.406])
-        std = np.array([0.229, 0.224, 0.225])
-        inp = std * inp + mean
-        inp = np.clip(inp, 0, 1)
-        plt.imshow(inp)
-        if title is not None:
-            plt.title(title)
-        plt.pause(0.001)  # pause a bit so that plots are updated
-
-    def visualize_model(self, num_images=6):
-        """
-        Args:
-            model: PyTorch model
-            num_images: number of images to display
-        """
-        model = self.model_ft
-        was_training = model.training
-        model.eval()
-        images_so_far = 0
-        fig = plt.figure()
-
-        with torch.no_grad():
-            for i, (inputs, labels) in enumerate(self.dataloaders["val"]):
-                inputs = inputs.to(self.device)
-                labels = labels.to(self.device)
-
-                outputs = model(inputs)
-                _, preds = torch.max(outputs, 1)
-
-                for j in range(inputs.size()[0]):
-                    images_so_far += 1
-                    ax = plt.subplot(num_images // 2, 2, images_so_far)
-                    ax.axis("off")
-                    ax.set_title(f"predicted: {self.class_names[preds[j]]}")
-                    self.imshow(inputs.cpu().data[j])
-
-                    if images_so_far == num_images:
-                        model.train(mode=was_training)
-                        return
-            model.train(mode=was_training)
+        return epoch_acc, best_f1
 
 
     def train_model(self, epochs=25):
@@ -264,54 +224,101 @@ class Trainer:
 
         self.criterion = nn.CrossEntropyLoss()
 
+        # Observe that all parameters are being optimized
+        self.optimizer = optim.SGD(self.model_ft.parameters(), lr=0.001, momentum=0.9)
+
+        # Decay LR by a factor of 0.1 every 7 epochs
+        self.scheduler = lr_scheduler.StepLR(self.optimizer, step_size=7, gamma=0.1)
+
         since = time.time()
 
         # Create a temporary directory to save training checkpoints
         model = self.model_ft
+        best_acc = 0.0
+        best_f1 = 0.0
         with TemporaryDirectory() as tempdir:
             best_model_params_path = os.path.join(tempdir, "best_model_params.pt")
-
             torch.save(model.state_dict(), best_model_params_path)
-            best_acc = 0.0
 
-            for epoch in range(epochs):
-                print(f"Epoch {epoch}/{epochs - 1}")
-                print("-" * 10)
-
+            for epoch in tqdm(range(epochs), desc="Epochs"):
                 # Each epoch has a training and validation phase
                 log_dict = {}
                 for phase in ["train", "val"]:
-                    best_acc = self.one_step(model, log_dict, phase=phase, best_model_params_path=best_model_params_path, epoch=epoch, best_acc=best_acc)
+                    best_acc, best_f1 = self.one_step(model, log_dict, phase=phase, best_model_params_path=best_model_params_path, epoch=epoch, best_f1=best_f1)
 
-                print()
                 wandb.log(log_dict, commit=True)
 
             time_elapsed = time.time() - since
-            print(
-                f"Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s"
-            )
-            print(f"Best val Acc: {best_acc:4f}")
+            tqdm.write(f"Best val Acc: {best_acc:4f}")
 
             # load best model weights
             model.load_state_dict(torch.load(best_model_params_path))
         self.model_ft = model
 
         # evauluate model on test set
-        test_dict = {}
-        self.one_step(self.model_ft, test_dict, phase="test", epoch=epochs)
-        wandb.log(test_dict, commit=True)
+        if "test" in self.dataloaders:
+            test_dict = {}
+            self.one_step(self.model_ft, test_dict, phase="test", epoch=epochs)
+            wandb.log(test_dict, commit=True)
+        return best_acc, best_f1
+        
 
-        # self.visualize_model()
+
+def instantiate_model(args):
+    """
+    Makes a model instance based on the model type
+    """
+    if args.model == "logistic_regression":
+        model_ft = LogisticRegression()
+    elif args.model == "resnet18":
+        model_ft = models.resnet18(weights="IMAGENET1K_V1")
+    elif args.model == "resnet34":
+        model_ft = models.resnet34(weights="IMAGENET1K_V1")
+    elif args.model == "efficientnet_b0":
+        model_ft = models.efficientnet_b0(weights="IMAGENET1K_V1")
+    else:
+        raise ValueError(f"Unknown model type {args.model}")
+    return model_ft
 
 
-def main():
-    args = get_training_args()
+def run_cross_validation(args, full_dataset):
+    """
+    Trains the model using cross validation.
+    """
+    # Create the KFold object
+    kf = KFold(n_splits=args.kfold, shuffle=True)
+    # Lists to store the datasets for each fold
+    train_datasets, val_datasets = [], []
+    # Split the data into k folds
+    for train_indices, val_indices in kf.split(full_dataset):
+        train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
+        val_dataset = torch.utils.data.Subset(full_dataset, val_indices)
+        
+        train_datasets.append(train_dataset)
+        val_datasets.append(val_dataset)
+    # Loop over each fold
+    best_acc = 0.0
+    best_f1 = 0.0
+    best_model = None
+    for fold in tqdm(range(args.kfold), desc="Folds"):
+        train_loader = torch.utils.data.DataLoader(
+            train_datasets[fold], batch_size=args.batch_size, shuffle=True
+        )
+        val_loader = torch.utils.data.DataLoader(
+            val_datasets[fold], batch_size=args.batch_size, shuffle=True
+        )
+        dataloaders = {"train": train_loader, "val": val_loader}
 
-    images, labels = load_training_dataset(
-        real_imgs_path=args.real, fake_imgs_path=args.fake
-    )
-    print(f"Loaded dataset of size {len(images)}")
+        model_ft = instantiate_model(args)
+        trainer = Trainer(model_ft, dataloaders, args)
+        accuracy, f1_score = trainer.train_model(args.epochs)
+        if f1_score > best_f1:
+            best_acc = accuracy
+            best_model = trainer.model_ft
+            best_f1 = f1_score
+    return best_model, best_acc, best_f1
 
+def main(args):
     # Initialize Weights and Biases run
     run = wandb.init(
         # entity=WANDB_ENTITY_NAME,
@@ -321,51 +328,65 @@ def main():
         config=args,
     )
     assert run is not None
+    args = wandb.config
+
+    images, labels = load_training_dataset(
+        real_imgs_path=args.real, fake_imgs_path=args.fake
+    )
+    tqdm.write(f"Loaded dataset of size {len(images)}")
 
     # split into train and val and test
     train_frac, val_frac, test_frac = args.train_frac, args.val_frac, 1 - args.train_frac - args.val_frac
-    print(f'train_frac: {train_frac}, val_frac: {val_frac}, test_frac: {test_frac}')
+    tqdm.write(f'train_frac: {train_frac}, val_frac: {val_frac}, test_frac: {test_frac}')
     train_size = int(train_frac * len(images))
     val_size = int(val_frac * len(images))
     test_size = len(images) - train_size - val_size
-    
+
     full_dataset = torch.utils.data.TensorDataset(images, labels)
-    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
-        full_dataset, [train_size, val_size, test_size], generator=torch.Generator().manual_seed(0)
-    )
-    # for ds in [val_dataset, test_dataset]:
-    #     ctr = collections.Counter()
-    #     for _, target in ds:
-    #         ctr[target] += 1
-    #     print("ctr is", ctr)
-    # assert(False)
+    best_acc = 0.0
+    best_f1 = 0.0
+    if args.kfold > 0:
+        tqdm.write(f"Using train and validation split for cross validation. frac: {train_frac + val_frac}")
+        train_dataset, test_dataset = torch.utils.data.random_split(
+            full_dataset, [train_size + val_size, test_size]
+        )
+        best_model, best_acc, best_f1 = run_cross_validation(args, train_dataset)
+        tqdm.write(f"Final Best accuracy: {best_acc}, best f1: {best_f1}")
 
-    # create dataloaders
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True
-    )
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=args.batch_size, shuffle=True
-    )
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=args.batch_size, shuffle=True
-    )
-    dataloaders = {"train": train_loader, "val": val_loader, "test": test_loader}
-
-    # instantiate model
-    if args.model == "logistic_regression":
-        model_ft = LogisticRegression()
-    elif args.model == "resnet18":
-        model_ft = models.resnet18(weights="IMAGENET1K_V1")
-    elif args.model == "resnet34":
-        model_ft = models.resnet34(weights="IMAGENET1K_V1")
-    elif args.model == 'efficientnet_b0':
-        model_ft = models.efficientnet_b0(weights='DEFAULT')
     else:
-        raise ValueError(f"Unknown model type {args.model}")
-    trainer = Trainer(model_ft, dataloaders, args) #log_all_images=args.log_all_images, model_name=args.model)
-    model_ft = trainer.train_model(args.epochs)
+        tqdm.write("Doing normal training with train, val, and test splits.")
+        train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
+            full_dataset, [train_size, val_size, test_size]
+        )
+
+        # create dataloaders
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=args.batch_size, shuffle=True
+        )
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=args.batch_size, shuffle=True
+        )
+        test_loader = torch.utils.data.DataLoader(
+            test_dataset, batch_size=args.batch_size, shuffle=True
+        )
+        dataloaders = {"train": train_loader, "val": val_loader, "test": test_loader}
+
+        model_ft = instantiate_model(args)
+        trainer = Trainer(model_ft, dataloaders, args)
+        best_acc, best_f1 = trainer.train_model(args.epochs)
+
+    wandb.log({"final_best_acc": best_acc, "final_best_f1": best_f1})
 
 
 if __name__ == "__main__":
-    main()
+    args = get_training_args()
+    if args.sweep_id != "":
+        wandb.agent(
+            args.sweep_id,
+            function=lambda: main(args),
+            # entity=WANDB_ENTITY_NAME,
+            project=WANDB_PROJECT_NAME,
+            count=1,
+        )
+    else:
+        main(args)
