@@ -92,6 +92,13 @@ class Trainer:
         elif 'efficientnet' in self.model_name:
             num_ftrs = self.model_ft.classifier[-1].in_features
             self.model_ft.classifier[-1] = nn.Linear(num_ftrs, 2)
+        elif 'vit' in self.model_name:
+            num_ftrs = self.model_ft.heads.head.in_features
+            self.num_classes = 2
+            self.model_ft.heads.head = nn.Linear(num_ftrs, self.num_classes)
+            if isinstance(self.model_ft.heads.head, nn.Linear):
+                nn.init.zeros_(self.model_ft.heads.head.weight)
+                nn.init.zeros_(self.model_ft.heads.head.bias)
 
 
 
@@ -361,6 +368,8 @@ def main():
         model_ft = models.resnet34(weights="IMAGENET1K_V1")
     elif args.model == 'efficientnet_b0':
         model_ft = models.efficientnet_b0(weights='DEFAULT')
+    elif args.model == 'vit':
+        model_ft = models.vit_b_16(weights='DEFAULT')
     else:
         raise ValueError(f"Unknown model type {args.model}")
     trainer = Trainer(model_ft, dataloaders, args) #log_all_images=args.log_all_images, model_name=args.model)
