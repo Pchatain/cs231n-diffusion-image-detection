@@ -96,9 +96,9 @@ class Trainer:
             num_ftrs = self.model_ft.heads.head.in_features
             self.num_classes = 2
             self.model_ft.heads.head = nn.Linear(num_ftrs, self.num_classes)
-            if isinstance(self.model_ft.heads.head, nn.Linear):
-                nn.init.zeros_(self.model_ft.heads.head.weight)
-                nn.init.zeros_(self.model_ft.heads.head.bias)
+            # if isinstance(self.model_ft.heads.head, nn.Linear):
+            #     nn.init.zeros_(self.model_ft.heads.head.weight)
+            #     nn.init.zeros_(self.model_ft.heads.head.bias)
 
 
 
@@ -329,6 +329,25 @@ def main():
     )
     assert run is not None
 
+    preprocess = None
+     # instantiate model
+    if args.model == "logistic_regression":
+        model_ft = LogisticRegression()
+    elif args.model == "resnet18":
+        model_ft = models.resnet18(weights="IMAGENET1K_V1")
+    elif args.model == "resnet34":
+        model_ft = models.resnet34(weights="IMAGENET1K_V1")
+    elif args.model == 'efficientnet_b0':
+        model_ft = models.efficientnet_b0(weights='DEFAULT')
+    elif args.model == 'vit':
+        model_ft = models.vit_b_16(weights='DEFAULT')
+        preprocess = models.ViT_B_16_Weights.DEFAULT.transforms()
+    else:
+        raise ValueError(f"Unknown model type {args.model}")
+    
+    if args.model == "vit":
+        images = preprocess(images)
+
     # split into train and val and test
     train_frac, val_frac, test_frac = args.train_frac, args.val_frac, 1 - args.train_frac - args.val_frac
     print(f'train_frac: {train_frac}, val_frac: {val_frac}, test_frac: {test_frac}')
@@ -359,19 +378,6 @@ def main():
     )
     dataloaders = {"train": train_loader, "val": val_loader, "test": test_loader}
 
-    # instantiate model
-    if args.model == "logistic_regression":
-        model_ft = LogisticRegression()
-    elif args.model == "resnet18":
-        model_ft = models.resnet18(weights="IMAGENET1K_V1")
-    elif args.model == "resnet34":
-        model_ft = models.resnet34(weights="IMAGENET1K_V1")
-    elif args.model == 'efficientnet_b0':
-        model_ft = models.efficientnet_b0(weights='DEFAULT')
-    elif args.model == 'vit':
-        model_ft = models.vit_b_16(weights='DEFAULT')
-    else:
-        raise ValueError(f"Unknown model type {args.model}")
     trainer = Trainer(model_ft, dataloaders, args) #log_all_images=args.log_all_images, model_name=args.model)
     model_ft = trainer.train_model(args.epochs)
 
