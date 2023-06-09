@@ -94,6 +94,13 @@ class Trainer:
         elif 'efficientnet' in self.model_name:
             num_ftrs = self.model_ft.classifier[-1].in_features
             self.model_ft.classifier[-1] = nn.Linear(num_ftrs, 2)
+        elif 'vit' in self.model_name:
+            num_ftrs = self.model_ft.heads.head.in_features
+            self.num_classes = 2
+            self.model_ft.heads.head = nn.Linear(num_ftrs, self.num_classes)
+            # if isinstance(self.model_ft.heads.head, nn.Linear):
+            #     nn.init.zeros_(self.model_ft.heads.head.weight)
+            #     nn.init.zeros_(self.model_ft.heads.head.bias)
 
 
 
@@ -265,20 +272,24 @@ def instantiate_model(args):
     """
     Makes a model instance based on the model type
     """
+    preprocess = None
     if args.model == "logistic_regression":
         model_ft = LogisticRegression()
     elif args.model == "resnet18":
         model_ft = models.resnet18(weights="IMAGENET1K_V1")
+        preprocess = models.ResNet18_Weights.DEFAULT.transforms()
     elif args.model == "resnet34":
         model_ft = models.resnet34(weights="IMAGENET1K_V1")
+        preprocess = models.ResNet34_Weights.DEFAULT.transforms()
     elif args.model == "efficientnet_b0":
         model_ft = models.efficientnet_b0(weights="IMAGENET1K_V1")
-    elif "efficientnet" in args.model:
-        # patch for misnamed model to default to b0
-        model_ft = models.efficientnet_b0(weights="IMAGENET1K_V1")
+        preprocess = models.EfficientNet_B0_Weights.DEFAULT.transforms()
+    elif args.model == "vit":
+        model_ft = models.vit_b_16(weights='DEFAULT')
+        preprocess = models.ViT_B_16_Weights.DEFAULT.transforms()
     else:
         raise ValueError(f"Unknown model type {args.model}")
-    return model_ft
+    return model_ft, preprocess
 
 
 def run_cross_validation(args, full_dataset):
@@ -334,6 +345,10 @@ def main(args):
         real_imgs_path=args.real, fake_imgs_path=args.fake
     )
     tqdm.write(f"Loaded dataset of size {len(images)}")
+    
+    model_ft, preprocess = instantiate_model(args)
+    if args.model == "vit":
+        images = preprocess(images)
 
     # split into train and val and test
     train_frac, val_frac, test_frac = args.train_frac, args.val_frac, 1 - args.train_frac - args.val_frac
@@ -372,7 +387,6 @@ def main(args):
             )
             dataloaders = {"train": train_loader, "val": val_loader, "test": test_loader}
 
-            model_ft = instantiate_model(args)
             trainer = Trainer(model_ft, dataloaders, args)
             best_acc, best_f1 = trainer.train_model(args.epochs)
     except RuntimeError as exc:
