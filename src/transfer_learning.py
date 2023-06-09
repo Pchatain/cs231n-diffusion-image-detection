@@ -29,6 +29,8 @@ from data import load_training_dataset
 
 from utils import get_training_args
 
+import collections
+
 WANDB_PROJECT_NAME = "cs231n"
 
 class LogisticRegression(nn.Module):
@@ -347,7 +349,8 @@ def main(args):
     tqdm.write(f"Loaded dataset of size {len(images)}")
     
     model_ft, preprocess = instantiate_model(args)
-    images = preprocess(images)
+    if args.model != "logistic_regression":
+        images = preprocess(images)
 
     # split into train and val and test
     train_frac, val_frac, test_frac = args.train_frac, args.val_frac, 1 - args.train_frac - args.val_frac
@@ -371,8 +374,13 @@ def main(args):
         else:
             tqdm.write("Doing normal training with train, val, and test splits.")
             train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
-                full_dataset, [train_size, val_size, test_size]
+                full_dataset, [train_size, val_size, test_size], generator=torch.Generator().manual_seed(0)
             )
+
+            for ds in [val_dataset, test_dataset]:
+                classes = [label.int().item() for _, label in ds]
+                print(collections.Counter(classes))
+            assert(False)
 
             # create dataloaders
             train_loader = torch.utils.data.DataLoader(
