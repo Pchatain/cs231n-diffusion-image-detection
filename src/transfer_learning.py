@@ -91,7 +91,7 @@ class Trainer:
             # Here the size of each output sample is set to 2.
             # Alternatively, it can be generalized to ``nn.Linear(num_ftrs, len(class_names))``.
             self.model_ft.fc = nn.Linear(num_ftrs, 2)
-        elif "efficientnet" in self.model_name:
+        elif 'efficientnet' in self.model_name:
             num_ftrs = self.model_ft.classifier[-1].in_features
             self.model_ft.classifier[-1] = nn.Linear(num_ftrs, 2)
         elif 'vit' in self.model_name:
@@ -404,7 +404,7 @@ if __name__ == "__main__":
             function=lambda: main(args),
             # entity=WANDB_ENTITY_NAME,
             project=WANDB_PROJECT_NAME,
-            count=1,
+            count=args.sweep_count,
         )
     else:
         main(args)
