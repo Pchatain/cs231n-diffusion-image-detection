@@ -27,7 +27,7 @@ import einops
 
 from data import load_training_dataset
 
-from utils import get_training_args
+from utils import get_training_args, create_tsne_plot
 
 WANDB_PROJECT_NAME = "cs231n"
 
@@ -210,7 +210,7 @@ class Trainer:
 
         # log images to wandb
         if phase != "train":
-            self.log_images(inputs, all_labels, all_preds, epoch)
+            self.log_images(all_inputs, all_labels, all_preds, epoch)
 
         # deep copy the model
         if phase == "val" and epoch_f1 > best_f1:
@@ -266,7 +266,6 @@ class Trainer:
             wandb.log(test_dict, commit=True)
         return best_acc, best_f1
         
-
 
 def instantiate_model(args):
     """
@@ -345,6 +344,10 @@ def main(args):
         real_imgs_path=args.real, fake_imgs_path=args.fake
     )
     tqdm.write(f"Loaded dataset of size {len(images)}")
+    if args.tsne:
+        # After obtaining the datasets
+        create_tsne_plot(images, labels)
+        return
     
     model_ft, preprocess = instantiate_model(args)
     if args.model == "vit":
