@@ -116,7 +116,7 @@ class Trainer:
         n_incorrect = 0
         n_total = 0
         for i, image in enumerate(inputs):
-            test_image = image.cpu().numpy()
+            test_image = image
             einops_image = einops.rearrange(test_image, "c h w -> h w c")
             n_total += 1
             if self.log_all_images or labels[i] != preds[i]:
@@ -187,7 +187,7 @@ class Trainer:
             all_preds += preds.cpu().numpy().tolist()
             all_labels += labels.cpu().numpy().tolist()
             if phase != "train":
-                all_inputs += inputs.cpu().numpy().tolist()
+                all_inputs.append(inputs.cpu().numpy())
 
             running_total_size += len(labels)
 
@@ -210,6 +210,7 @@ class Trainer:
 
         # log images to wandb
         if phase != "train":
+            all_inputs = np.concatenate(all_inputs)
             self.log_images(all_inputs, all_labels, all_preds, epoch)
 
         # deep copy the model
