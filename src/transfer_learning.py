@@ -94,9 +94,6 @@ class Trainer:
         elif "efficientnet" in self.model_name:
             num_ftrs = self.model_ft.classifier[-1].in_features
             self.model_ft.classifier[-1] = nn.Linear(num_ftrs, 2)
-        elif 'efficientnet' in self.model_name:
-            num_ftrs = self.model_ft.classifier[-1].in_features
-            self.model_ft.classifier[-1] = nn.Linear(num_ftrs, 2)
         elif 'vit' in self.model_name:
             num_ftrs = self.model_ft.heads.head.in_features
             self.num_classes = 2
@@ -350,8 +347,7 @@ def main(args):
     tqdm.write(f"Loaded dataset of size {len(images)}")
     
     model_ft, preprocess = instantiate_model(args)
-    if args.model == "vit":
-        images = preprocess(images)
+    images = preprocess(images)
 
     # split into train and val and test
     train_frac, val_frac, test_frac = args.train_frac, args.val_frac, 1 - args.train_frac - args.val_frac
